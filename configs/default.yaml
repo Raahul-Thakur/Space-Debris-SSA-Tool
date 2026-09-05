@@ -1,0 +1,59 @@
+# sdebris default configuration.
+# Override any field with --config <path> on the CLI, or edit in place.
+
+ingestion:
+  # CelesTrak GP query group used to seed the catalog. Common values:
+  #   active, stations, iridium-33-debris, cosmos-2251-debris, last-30-days
+  default_group: "iridium-33-debris"
+  base_url: "https://celestrak.org/NORAD/elements/gp.php"
+  cache_path: "data/cache/tle_cache.sqlite"
+  poll_interval_hours: 2          # how often the scheduler should refresh
+  stale_after_days: 5             # TLEs older than this are flagged stale
+
+propagation:
+  window_hours: 72                # screening look-ahead window
+  step_sec: 60                    # coarse propagation step
+  refine_step_sec: 1              # TCA refinement resolution
+
+screening:
+  coarse_threshold_km: 50         # objects beyond this at every step are skipped
+  report_threshold_km: 25         # only conjunctions closer than this are reported
+
+risk:
+  hard_body_radius_m: 20          # combined hard-body radius for Pc
+  # Position uncertainty model (RIC, 1-sigma) at the TLE epoch, in metres.
+  # Uncertainty grows with TLE age (see methodology docs).
+  sigma_radial_m: 50
+  sigma_intrack_m: 200
+  sigma_crosstrack_m: 50
+  age_growth_m_per_day:           # 1-sigma growth added per day of TLE age
+    radial: 20
+    intrack: 400
+    crosstrack: 30
+  # Alert tiers. An event takes the highest tier whose condition it meets.
+  tiers:
+    critical:
+      miss_distance_km: 1.0
+      probability_of_collision: 1.0e-4
+    watch:
+      miss_distance_km: 5.0
+      probability_of_collision: 1.0e-5
+    # everything else -> nominal
+
+reports:
+  output_dir: "data/reports"
+
+ontology:
+  # Override with SDEBRIS_DATABASE_URL in deployed environments.
+  database_url: "sqlite:///data/ontology.sqlite"
+
+alerts:
+  enabled: false
+  cooldown_hours: 6               # suppress repeat alerts for the same pair
+  email:
+    enabled: false
+    sender: "ssa-bot@example.com"
+    recipients: []
+  webhook:
+    enabled: false
+    url: ""                       # Slack / Discord incoming webhook

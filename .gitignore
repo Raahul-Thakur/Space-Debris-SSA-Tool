@@ -1,0 +1,31 @@
+# Python
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.ruff_cache/
+
+# Local environments and build output
+.venv/
+*.egg-info/
+site/
+web/node_modules/
+web/.next/
+web/.next-e2e/
+web/public/cesium/
+web/.env.local
+web/test-results/
+web/playwright-report/
+web/tsconfig.tsbuildinfo
+.env
+backups/
+
+# Runtime data
+data/*.sqlite
+data/*.db
+data/cache/
+data/reports/*.csv
+data/reports/*.json
+
+# Environment-specific Streamlit agent skill links
+.agents/skills/developing-with-streamlit
+.claude/skills/developing-with-streamlit

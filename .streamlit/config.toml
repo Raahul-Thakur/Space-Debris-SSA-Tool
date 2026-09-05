@@ -1,0 +1,18 @@
+[theme]
+base = "dark"
+primaryColor = "#5DADE2"
+backgroundColor = "#081018"
+secondaryBackgroundColor = "#111C27"
+textColor = "#E8F0F7"
+linkColor = "#78C6F3"
+borderColor = "#263746"
+showWidgetBorder = true
+baseRadius = "small"
+buttonRadius = "small"
+font = "Inter:https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&display=swap"
+headingFont = "Inter:https://fonts.googleapis.com/css2?family=Inter:wght@500;600&display=swap"
+codeFont = "IBM Plex Mono:https://fonts.googleapis.com/css2?family=IBM+Plex+Mono&display=swap"
+
+[theme.sidebar]
+backgroundColor = "#0C1620"
+secondaryBackgroundColor = "#152330"

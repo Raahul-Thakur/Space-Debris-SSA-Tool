@@ -1,0 +1,24 @@
+site_name: Space Debris SSA Tool
+site_description: Conjunction screening and collision-avoidance awareness from live TLE data.
+theme:
+  name: material
+  palette:
+    - scheme: slate
+      primary: indigo
+      accent: light blue
+  features:
+    - navigation.sections
+    - content.code.copy
+
+nav:
+  - Home: index.md
+  - Usage: usage.md
+  - Architecture: architecture.md
+  - Operational ontology: ontology.md
+  - Methodology: methodology.md
+
+markdown_extensions:
+  - admonition
+  - pymdownx.highlight
+  - pymdownx.superfences
+  - tables

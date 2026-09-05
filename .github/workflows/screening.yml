@@ -1,0 +1,49 @@
+name: Scheduled screening
+
+on:
+  schedule:
+    - cron: "0 */6 * * *"   # every 6 hours
+  workflow_dispatch:
+    inputs:
+      norad:
+        description: "Target NORAD id"
+        default: "25544"
+      group:
+        description: "CelesTrak group"
+        default: "iridium-33-debris"
+
+permissions:
+  contents: write   # to commit the updated report
+
+env:
+  TARGET_NORAD: ${{ github.event.inputs.norad || '25544' }}
+  TARGET_GROUP: ${{ github.event.inputs.group || 'iridium-33-debris' }}
+
+jobs:
+  screen:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+      - name: Install package
+        run: pip install -e .
+      - name: Run conjunction screening
+        env:
+          SDEBRIS_WEBHOOK_URL: ${{ secrets.SDEBRIS_WEBHOOK_URL }}
+        run: |
+          sdebris screen --norad "$TARGET_NORAD" --group "$TARGET_GROUP" \
+            --window-hours 72 --threshold-km 25 --alert
+      - name: Commit updated reports
+        run: |
+          git config user.name  "sdebris-bot"
+          git config user.email "sdebris-bot@users.noreply.github.com"
+          git add data/reports/*.csv data/reports/*.json || true
+          if git diff --cached --quiet; then
+            echo "No report changes to commit."
+          else
+            git commit -m "chore: scheduled screening report for $TARGET_NORAD [skip ci]"
+            git push
+          fi

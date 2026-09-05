@@ -1,0 +1,36 @@
+{
+  "name": "sdebris-command-center",
+  "private": true,
+  "type": "module",
+  "version": "0.1.0",
+  "scripts": {
+    "dev": "node scripts/copy-cesium.mjs && next dev",
+    "build": "node scripts/copy-cesium.mjs && next build",
+    "start": "next start",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "test:e2e": "playwright test",
+    "lint": "next lint"
+  },
+  "dependencies": {
+    "@supabase/supabase-js": "^2.115.0",
+    "cesium": "^1.131.0",
+    "next": "^16.3.4",
+    "react": "^19.1.0",
+    "react-dom": "^19.1.0"
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.63.0",
+    "@testing-library/jest-dom": "^7.0.1",
+    "@testing-library/react": "^16.3.3",
+    "@testing-library/user-event": "^14.6.7",
+    "@types/node": "^22.0.0",
+    "@types/react": "^19.0.0",
+    "@types/react-dom": "^19.0.0",
+    "@vitejs/plugin-react": "^6.1.1",
+    "jsdom": "^28.1.0",
+    "playwright": "^1.63.0",
+    "typescript": "^5.8.0",
+    "vitest": "^5.0.0"
+  }
+}

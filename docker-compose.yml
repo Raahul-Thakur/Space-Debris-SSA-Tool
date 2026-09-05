@@ -1,0 +1,50 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: sdebris
+      POSTGRES_PASSWORD: sdebris-local
+      POSTGRES_DB: sdebris
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U sdebris"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+
+  redis:
+    image: redis:7-alpine
+    command: redis-server --appendonly yes
+    volumes:
+      - redis-data:/data
+
+  api:
+    build: .
+    environment: &backend-env
+      SDEBRIS_ENV: development
+      SDEBRIS_DATABASE_URL: postgresql+psycopg://sdebris:sdebris-local@postgres:5432/sdebris
+      SDEBRIS_JOB_BACKEND: redis
+      SDEBRIS_REDIS_URL: redis://redis:6379/0
+      SDEBRIS_CORS_ORIGINS: http://localhost:3000
+    ports: ["8000:10000"]
+    depends_on:
+      postgres: { condition: service_healthy }
+      redis: { condition: service_started }
+
+  web:
+    image: node:22-alpine
+    working_dir: /app
+    command: sh -c "npm ci && npm run dev"
+    environment:
+      NEXT_PUBLIC_SDEBRIS_API_URL: http://localhost:8000
+    ports: ["3000:3000"]
+    volumes:
+      - ./web:/app
+      - web-node-modules:/app/node_modules
+    depends_on: [api]
+
+volumes:
+  postgres-data:
+  redis-data:
+  web-node-modules:

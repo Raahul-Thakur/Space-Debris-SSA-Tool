@@ -1,0 +1,71 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "sdebris"
+version = "0.1.0"
+description = "Space debris SSA tool — conjunction screening and collision-avoidance awareness from live TLE data."
+readme = "README.md"
+requires-python = ">=3.10"
+license = { text = "MIT" }
+authors = [{ name = "Rahul" }]
+keywords = ["space", "debris", "ssa", "conjunction", "sgp4", "tle", "orbital"]
+dependencies = [
+  "numpy>=1.24",
+  "scipy>=1.10",
+  "pandas>=2.0",
+  "pyarrow>=12",
+  "sgp4>=2.23",
+  "astropy>=5.3",
+  "requests>=2.28",
+  "pydantic>=2.5",
+  "pyyaml>=6.0",
+  "click>=8.1",
+  "rich>=13.0",
+]
+
+[project.optional-dependencies]
+app = ["streamlit>=1.30", "plotly>=5.18"]
+api = [
+  "fastapi>=0.115,<1",
+  "sqlalchemy>=2.0,<3",
+  "alembic>=1.13,<2",
+  "uvicorn>=0.30,<1",
+  "PyJWT[crypto]>=2.9,<3",
+  "psycopg[binary]>=3.2,<4",
+  "dramatiq[redis]>=1.17,<2",
+]
+alerts = ["sendgrid>=6.10"]
+dev = [
+  "pytest>=8.0",
+  "pytest-cov>=4.1",
+  "pre-commit>=3.5",
+  "ruff>=0.4",
+  "httpx>=0.27,<1",
+]
+docs = ["mkdocs>=1.5", "mkdocs-material>=9.5"]
+
+[project.scripts]
+sdebris = "sdebris.cli:cli"
+sdebris-api = "sdebris.api.app:run"
+
+[project.urls]
+Homepage = "https://github.com/rahul/space-debris-ssa-tool"
+Documentation = "https://rahul.github.io/space-debris-ssa-tool"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["src"]
+addopts = "-q"
+
+[tool.ruff]
+line-length = 100
+target-version = "py310"
+
+[tool.coverage.run]
+source = ["sdebris"]
+branch = true
