@@ -40,5 +40,7 @@ data/reports/*.csv
 data/reports/*.json
 
 # Environment-specific Streamlit agent skill links
-.agents/skills/developing-with-streamlit
-.claude/skills/developing-with-streamlit
+.agents/
+.claude/
+web/AGENTS.md
+web/CLAUDE.md
