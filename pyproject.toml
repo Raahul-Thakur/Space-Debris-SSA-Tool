@@ -51,8 +51,8 @@ sdebris = "sdebris.cli:cli"
 sdebris-api = "sdebris.api.app:run"
 
 [project.urls]
-Homepage = "https://github.com/rahul/space-debris-ssa-tool"
-Documentation = "https://rahul.github.io/space-debris-ssa-tool"
+Homepage = "https://github.com/Raahul-Thakur/Space-Debris-SSA-Tool"
+Documentation = "https://raahul-thakur.github.io/Space-Debris-SSA-Tool/"
 
 [tool.setuptools.packages.find]
 where = ["src"]

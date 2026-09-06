@@ -1,8 +1,8 @@
 # 🛰️ Space Debris SSA Tool
 
-[![CI](https://github.com/rahul/space-debris-ssa-tool/actions/workflows/ci.yml/badge.svg)](https://github.com/rahul/space-debris-ssa-tool/actions/workflows/ci.yml)
-[![Scheduled screening](https://github.com/rahul/space-debris-ssa-tool/actions/workflows/screening.yml/badge.svg)](https://github.com/rahul/space-debris-ssa-tool/actions/workflows/screening.yml)
-[![Docs](https://github.com/rahul/space-debris-ssa-tool/actions/workflows/docs.yml/badge.svg)](https://rahul.github.io/space-debris-ssa-tool)
+[![CI](https://github.com/Raahul-Thakur/Space-Debris-SSA-Tool/actions/workflows/ci.yml/badge.svg)](https://github.com/Raahul-Thakur/Space-Debris-SSA-Tool/actions/workflows/ci.yml)
+[![Scheduled screening](https://github.com/Raahul-Thakur/Space-Debris-SSA-Tool/actions/workflows/screening.yml/badge.svg)](https://github.com/Raahul-Thakur/Space-Debris-SSA-Tool/actions/workflows/screening.yml)
+[![Docs](https://github.com/Raahul-Thakur/Space-Debris-SSA-Tool/actions/workflows/docs.yml/badge.svg)](https://raahul-thakur.github.io/Space-Debris-SSA-Tool/)
 [![Python](https://img.shields.io/badge/python-3.10%2B-blue.svg)](https://www.python.org)
 [![License: MIT](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
 
@@ -25,7 +25,7 @@ all exposed through a CLI, a Streamlit web app, and a scheduled CI pipeline.
 | **1 — Foundation** | Live CelesTrak ingestion · SQLite cache with epoch & staleness tracking · vectorised SGP4 propagation · installable `src/` package · pytest suite |
 | **2 — Screening** | Target-centric miss distance · TCA via range-rate bisection · RAC decomposition · Foster/Chan **Pc** · TLE-age-weighted uncertainty · tiered risk · canonical CSV + JSON reports · `sdebris` CLI |
 | **3 — Interface** | Streamlit app · 3D ECI orbit view · ground tracks · analytics charts · sortable/filterable event table |
-| **4 — Production** | GitHub Actions cron screening · email/webhook alerts with cooldown · MkDocs site · CI/CD |
+| **4 — Automation** | GitHub Actions cron screening · email/webhook alerts with cooldown · MkDocs site · CI/CD |
 
 ## Quick start
 
@@ -131,6 +131,10 @@ pytest                       # run the test suite
 ruff check src tests         # lint
 mkdocs serve                 # preview docs
 ```
+
+Contributions and methodology feedback are welcome. Read
+[CONTRIBUTING.md](CONTRIBUTING.md) before opening a pull request, and report exploitable
+issues through the private process in [SECURITY.md](SECURITY.md).
 
 ## License
 

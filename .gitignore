@@ -3,21 +3,34 @@ __pycache__/
 *.py[cod]
 .pytest_cache/
 .ruff_cache/
+.coverage
+coverage.xml
+htmlcov/
 
 # Local environments and build output
 .venv/
 *.egg-info/
+build/
+dist/
 site/
 web/node_modules/
 web/.next/
 web/.next-e2e/
 web/public/cesium/
-web/.env.local
+*.log
+.env*
+!.env.example
+!web/.env.example
 web/test-results/
 web/playwright-report/
 web/tsconfig.tsbuildinfo
-.env
 backups/
+
+# Editor and operating-system files
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
 
 # Runtime data
 data/*.sqlite

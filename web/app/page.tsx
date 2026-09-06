@@ -31,30 +31,6 @@ export default function CommandCenter() {
   const [busy, setBusy] = useState(false);
   const [paletteOpen, setPaletteOpen] = useState(false);
 
-  useEffect(() => {
-    let active = true;
-    initializeAuth().then((state) => {
-      if (!active) return;
-      setAuthenticated(state.development || Boolean(state.session));
-      setAuthReady(true);
-    }).catch((caught) => {
-      if (!active) return;
-      setError(caught instanceof Error ? caught.message : "Authentication failed");
-      setAuthReady(true);
-    });
-    const client = getSupabase();
-    const subscription = client?.auth.onAuthStateChange((_event, session) => {
-      import("@/lib/api").then(({ setAccessToken }) =>
-        setAccessToken(session?.access_token ?? null)
-      );
-      setAuthenticated(Boolean(session));
-    }).data.subscription;
-    return () => {
-      active = false;
-      subscription?.unsubscribe();
-    };
-  }, []);
-
   const refresh = useCallback(async () => {
     const [nextJobs, nextMonitored, listed] = await Promise.all([
       api<Job[]>("/screening-jobs").catch(() => []),
@@ -84,13 +60,37 @@ export default function CommandCenter() {
   }, []);
 
   useEffect(() => {
-    if (authenticated) refresh();
-  }, [authenticated, refresh]);
+    let active = true;
+    initializeAuth().then(async (state) => {
+      if (!active) return;
+      const signedIn = state.development || Boolean(state.session);
+      setAuthenticated(signedIn);
+      setAuthReady(true);
+      if (signedIn) await refresh();
+    }).catch((caught) => {
+      if (!active) return;
+      setError(caught instanceof Error ? caught.message : "Authentication failed");
+      setAuthReady(true);
+    });
+    const client = getSupabase();
+    const subscription = client?.auth.onAuthStateChange((_event, session) => {
+      import("@/lib/api").then(({ setAccessToken }) =>
+        setAccessToken(session?.access_token ?? null)
+      );
+      setAuthenticated(Boolean(session));
+      if (session) void refresh();
+    }).data.subscription;
+    return () => {
+      active = false;
+      subscription?.unsubscribe();
+    };
+  }, [refresh]);
 
+  const activeJobId = activeJob?.id;
   useEffect(() => {
-    if (!activeJob) return;
+    if (!activeJobId) return;
     const controller = new AbortController();
-    streamSse<JobEvent>(`/screening-jobs/${activeJob.id}/events`, (update) => {
+    streamSse<JobEvent>(`/screening-jobs/${activeJobId}/events`, (update) => {
       setJobEvents((current) =>
         current.some((item) => item.sequence === update.sequence)
           ? current
@@ -111,14 +111,14 @@ export default function CommandCenter() {
       );
       if (["complete", "failed", "cancelled"].includes(update.stage)) {
         controller.abort();
-        api<Job>(`/screening-jobs/${activeJob.id}`).then(setActiveJob);
+        api<Job>(`/screening-jobs/${activeJobId}`).then(setActiveJob);
         refresh();
       }
     }, controller.signal).catch((caught) => {
       if (!controller.signal.aborted) setError(caught instanceof Error ? caught.message : "Progress stream failed");
     });
     return () => controller.abort();
-  }, [activeJob?.id, refresh]);
+  }, [activeJobId, refresh]);
 
   async function execute(event: FormEvent) {
     event.preventDefault();
