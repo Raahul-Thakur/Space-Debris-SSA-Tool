@@ -47,3 +47,24 @@ export type RiskEvent = {
   tier: string;
   probability_of_collision: number | null;
 };
+
+export type ActivitySeverity = "critical" | "watch" | "nominal" | "info";
+
+export type ActivityItem = {
+  id: string;
+  kind: "conjunction" | "alert" | "job" | "command" | "monitoring" | "governance";
+  severity: ActivitySeverity;
+  title: string;
+  detail: string;
+  occurred_at: string;
+  entity_type: string;
+  entity_id: string;
+  norad_id: string | null;
+  payload: Record<string, unknown>;
+};
+
+export type ActivitySnapshot = {
+  items: ActivityItem[];
+  cursor: string;
+  server_time: string;
+};

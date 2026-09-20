@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import "cesium/Build/Cesium/Widgets/widgets.css";
+import "driver.js/dist/driver.css";
 import "./globals.css";
 
 export const metadata: Metadata = {
