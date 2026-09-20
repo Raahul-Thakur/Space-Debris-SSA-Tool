@@ -75,6 +75,21 @@ never forwarded to a shell. Screening runs asynchronously, streams progress over
 Server-Sent Events, supports cancellation, and persists its job and command audit
 history in the ontology database.
 
+New to the console? It ships with three things to get you moving:
+
+- **A guided tour** that walks the layout in about a minute. It opens on a first
+  visit and can be replayed from the `TOUR` button or the documentation page.
+- **A documentation page** at `/docs` with the command reference, the concepts
+  behind the numbers, the methodology and its limits, and sample queries you can
+  send straight to the console.
+- **Sample queries** in the command palette, each with a note on what it does and
+  roughly how long it takes. `Ctrl`+`K` focuses the console from anywhere.
+
+The dashboard also holds an open stream to `GET /stream/activity` and renders
+conjunctions, alerts, job transitions, commands, and governance actions as they
+are recorded — including actions taken by other operators — so nothing needs a
+page refresh.
+
 Example output:
 
 ```
@@ -93,8 +108,12 @@ CelesTrak → SQLite cache → SGP4 propagation → coarse screen
 
 See [docs/architecture.md](docs/architecture.md) and
 [docs/methodology.md](docs/methodology.md) for the full data flow and the science.
-For the zero-cost public stack, follow
-[docs/deployment-free-tier.md](docs/deployment-free-tier.md).
+For the zero-cost public stack — Vercel Hobby for the frontend, a Render free
+web service for the API, and one Supabase free project for both Postgres and
+authentication — follow
+[docs/deployment-free-tier.md](docs/deployment-free-tier.md). On that stack
+screening runs in the API process (`SDEBRIS_JOB_BACKEND=thread`), so no Redis
+broker or separate worker is required.
 
 ## Project layout
 

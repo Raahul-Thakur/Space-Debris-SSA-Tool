@@ -8,11 +8,12 @@ services:
     envVars:
       - key: SDEBRIS_ENV
         value: production
+      # The free plan runs a single instance, so screening executes in the API
+      # process and no Redis broker or separate worker is needed. Switch this
+      # to "redis" and add SDEBRIS_REDIS_URL for a durable queue.
       - key: SDEBRIS_JOB_BACKEND
-        value: redis
+        value: thread
       - key: SDEBRIS_DATABASE_URL
-        sync: false
-      - key: SDEBRIS_REDIS_URL
         sync: false
       - key: SDEBRIS_AUTH_JWKS_URL
         sync: false
@@ -21,4 +22,8 @@ services:
       - key: SDEBRIS_AUTH_AUDIENCE
         value: authenticated
       - key: SDEBRIS_CORS_ORIGINS
+        sync: false
+      # Optional: a regular expression matching Vercel preview domains, so
+      # preview deployments can reach the API. See docs/deployment-free-tier.md.
+      - key: SDEBRIS_CORS_ORIGIN_REGEX
         sync: false
