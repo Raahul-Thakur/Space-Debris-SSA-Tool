@@ -1,0 +1,866 @@
+
+<!doctype html>
+<html lang="en" class="no-js">
+  <head>
+    
+      <meta charset="utf-8">
+      <meta name="viewport" content="width=device-width,initial-scale=1">
+      
+        <meta name="description" content="Conjunction screening and collision-avoidance awareness from live TLE data.">
+      
+      
+      
+        <link rel="canonical" href="https://raahul-thakur.github.io/Space-Debris-SSA-Tool/deployment-free-tier/">
+      
+      
+        <link rel="prev" href="../methodology/">
+      
+      
+      
+        
+      
+      
+      <link rel="icon" href="../assets/images/favicon.png">
+      <meta name="generator" content="mkdocs-1.6.1, mkdocs-material-9.7.7">
+    
+    
+      
+        <title>Free-tier deployment - Space Debris SSA Tool</title>
+      
+    
+    
+      <link rel="stylesheet" href="../assets/stylesheets/main.ec1eaa64.min.css">
+      
+        
+        <link rel="stylesheet" href="../assets/stylesheets/palette.ab4e12ef.min.css">
+      
+      
+
+
+    
+    
+      
+    
+    
+      
+        
+        
+        <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+        <link rel="stylesheet" href="https://fonts.googleapis.com/css?family=Roboto:300,300i,400,400i,700,700i%7CRoboto+Mono:400,400i,700,700i&display=fallback">
+        <style>:root{--md-text-font:"Roboto";--md-code-font:"Roboto Mono"}</style>
+      
+    
+    
+    <script>__md_scope=new URL("..",location),__md_hash=e=>[...e].reduce(((e,_)=>(e<<5)-e+_.charCodeAt(0)),0),__md_get=(e,_=localStorage,t=__md_scope)=>JSON.parse(_.getItem(t.pathname+"."+e)),__md_set=(e,_,t=localStorage,a=__md_scope)=>{try{t.setItem(a.pathname+"."+e,JSON.stringify(_))}catch(e){}}</script>
+    
+      
+
+    
+    
+  </head>
+  
+  
+    
+    
+      
+    
+    
+    
+    
+    <body dir="ltr" data-md-color-scheme="slate" data-md-color-primary="indigo" data-md-color-accent="light-blue">
+  
+    
+    <input class="md-toggle" data-md-toggle="drawer" type="checkbox" id="__drawer" autocomplete="off">
+    <input class="md-toggle" data-md-toggle="search" type="checkbox" id="__search" autocomplete="off">
+    <label class="md-overlay" for="__drawer"></label>
+    <div data-md-component="skip">
+      
+        
+        <a href="#free-tier-public-deployment" class="md-skip">
+          Skip to content
+        </a>
+      
+    </div>
+    <div data-md-component="announce">
+      
+    </div>
+    
+    
+      
+
+  
+
+<header class="md-header md-header--shadow" data-md-component="header">
+  <nav class="md-header__inner md-grid" aria-label="Header">
+    <a href=".." title="Space Debris SSA Tool" class="md-header__button md-logo" aria-label="Space Debris SSA Tool" data-md-component="logo">
+      
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a3 3 0 0 0 3-3 3 3 0 0 0-3-3 3 3 0 0 0-3 3 3 3 0 0 0 3 3m0 3.54C9.64 9.35 6.5 8 3 8v11c3.5 0 6.64 1.35 9 3.54 2.36-2.19 5.5-3.54 9-3.54V8c-3.5 0-6.64 1.35-9 3.54"/></svg>
+
+    </a>
+    <label class="md-header__button md-icon" for="__drawer">
+      
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M3 6h18v2H3zm0 5h18v2H3zm0 5h18v2H3z"/></svg>
+    </label>
+    <div class="md-header__title" data-md-component="header-title">
+      <div class="md-header__ellipsis">
+        <div class="md-header__topic">
+          <span class="md-ellipsis">
+            Space Debris SSA Tool
+          </span>
+        </div>
+        <div class="md-header__topic" data-md-component="header-topic">
+          <span class="md-ellipsis">
+            
+              Free-tier deployment
+            
+          </span>
+        </div>
+      </div>
+    </div>
+    
+      
+        <form class="md-header__option" data-md-component="palette">
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="" data-md-color-scheme="slate" data-md-color-primary="indigo" data-md-color-accent="light-blue"  aria-hidden="true"  type="radio" name="__palette" id="__palette_0">
+    
+  
+</form>
+      
+    
+    
+      <script>var palette=__md_get("__palette");if(palette&&palette.color){if("(prefers-color-scheme)"===palette.color.media){var media=matchMedia("(prefers-color-scheme: light)"),input=document.querySelector(media.matches?"[data-md-color-media='(prefers-color-scheme: light)']":"[data-md-color-media='(prefers-color-scheme: dark)']");palette.color.media=input.getAttribute("data-md-color-media"),palette.color.scheme=input.getAttribute("data-md-color-scheme"),palette.color.primary=input.getAttribute("data-md-color-primary"),palette.color.accent=input.getAttribute("data-md-color-accent")}for(var[key,value]of Object.entries(palette.color))document.body.setAttribute("data-md-color-"+key,value)}</script>
+    
+    
+    
+      
+      
+        <label class="md-header__button md-icon" for="__search">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        </label>
+        <div class="md-search" data-md-component="search" role="dialog">
+  <label class="md-search__overlay" for="__search"></label>
+  <div class="md-search__inner" role="search">
+    <form class="md-search__form" name="search">
+      <input type="text" class="md-search__input" name="query" aria-label="Search" placeholder="Search" autocapitalize="off" autocorrect="off" autocomplete="off" spellcheck="false" data-md-component="search-query" required>
+      <label class="md-search__icon md-icon" for="__search">
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M20 11v2H8l5.5 5.5-1.42 1.42L4.16 12l7.92-7.92L13.5 5.5 8 11z"/></svg>
+      </label>
+      <nav class="md-search__options" aria-label="Search">
+        
+        <button type="reset" class="md-search__icon md-icon" title="Clear" aria-label="Clear" tabindex="-1">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M19 6.41 17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/></svg>
+        </button>
+      </nav>
+      
+    </form>
+    <div class="md-search__output">
+      <div class="md-search__scrollwrap" tabindex="0" data-md-scrollfix>
+        <div class="md-search-result" data-md-component="search-result">
+          <div class="md-search-result__meta">
+            Initializing search
+          </div>
+          <ol class="md-search-result__list" role="presentation"></ol>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+      
+    
+    
+      <div class="md-header__source">
+        <a href="https://github.com/Raahul-Thakur/Space-Debris-SSA-Tool" title="Go to repository" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M439.6 236.1 244 40.5c-5.4-5.5-12.8-8.5-20.4-8.5s-15 3-20.4 8.4L162.5 81l51.5 51.5c27.1-9.1 52.7 16.8 43.4 43.7l49.7 49.7c34.2-11.8 61.2 31 35.5 56.7-26.5 26.5-70.2-2.9-56-37.3L240.3 199v121.9c25.3 12.5 22.3 41.8 9.1 55-6.4 6.4-15.2 10.1-24.3 10.1s-17.8-3.6-24.3-10.1c-17.6-17.6-11.1-46.9 11.2-56v-123c-20.8-8.5-24.6-30.7-18.6-45L142.6 101 8.5 235.1C3 240.6 0 247.9 0 255.5s3 15 8.5 20.4l195.6 195.7c5.4 5.4 12.7 8.4 20.4 8.4s15-3 20.4-8.4l194.7-194.7c5.4-5.4 8.4-12.8 8.4-20.4s-3-15-8.4-20.4"/></svg>
+  </div>
+  <div class="md-source__repository">
+    Raahul-Thakur/Space-Debris-SSA-Tool
+  </div>
+</a>
+      </div>
+    
+  </nav>
+  
+</header>
+    
+    <div class="md-container" data-md-component="container">
+      
+      
+        
+          
+        
+      
+      <main class="md-main" data-md-component="main">
+        <div class="md-main__inner md-grid">
+          
+            
+              
+              <div class="md-sidebar md-sidebar--primary" data-md-component="sidebar" data-md-type="navigation" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+
+
+<nav class="md-nav md-nav--primary" aria-label="Navigation" data-md-level="0">
+  <label class="md-nav__title" for="__drawer">
+    <a href=".." title="Space Debris SSA Tool" class="md-nav__button md-logo" aria-label="Space Debris SSA Tool" data-md-component="logo">
+      
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a3 3 0 0 0 3-3 3 3 0 0 0-3-3 3 3 0 0 0-3 3 3 3 0 0 0 3 3m0 3.54C9.64 9.35 6.5 8 3 8v11c3.5 0 6.64 1.35 9 3.54 2.36-2.19 5.5-3.54 9-3.54V8c-3.5 0-6.64 1.35-9 3.54"/></svg>
+
+    </a>
+    Space Debris SSA Tool
+  </label>
+  
+    <div class="md-nav__source">
+      <a href="https://github.com/Raahul-Thakur/Space-Debris-SSA-Tool" title="Go to repository" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M439.6 236.1 244 40.5c-5.4-5.5-12.8-8.5-20.4-8.5s-15 3-20.4 8.4L162.5 81l51.5 51.5c27.1-9.1 52.7 16.8 43.4 43.7l49.7 49.7c34.2-11.8 61.2 31 35.5 56.7-26.5 26.5-70.2-2.9-56-37.3L240.3 199v121.9c25.3 12.5 22.3 41.8 9.1 55-6.4 6.4-15.2 10.1-24.3 10.1s-17.8-3.6-24.3-10.1c-17.6-17.6-11.1-46.9 11.2-56v-123c-20.8-8.5-24.6-30.7-18.6-45L142.6 101 8.5 235.1C3 240.6 0 247.9 0 255.5s3 15 8.5 20.4l195.6 195.7c5.4 5.4 12.7 8.4 20.4 8.4s15-3 20.4-8.4l194.7-194.7c5.4-5.4 8.4-12.8 8.4-20.4s-3-15-8.4-20.4"/></svg>
+  </div>
+  <div class="md-source__repository">
+    Raahul-Thakur/Space-Debris-SSA-Tool
+  </div>
+</a>
+    </div>
+  
+  <ul class="md-nav__list" data-md-scrollfix>
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href=".." class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Home
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../usage/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Usage
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../architecture/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Architecture
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../ontology/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Operational ontology
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../methodology/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Methodology
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+    
+  
+  
+  
+    <li class="md-nav__item md-nav__item--active">
+      
+      <input class="md-nav__toggle md-toggle" type="checkbox" id="__toc">
+      
+      
+        
+      
+      
+        <label class="md-nav__link md-nav__link--active" for="__toc">
+          
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Free-tier deployment
+  
+
+    
+  </span>
+  
+  
+
+          <span class="md-nav__icon md-icon"></span>
+        </label>
+      
+      <a href="./" class="md-nav__link md-nav__link--active">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Free-tier deployment
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+      
+        
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#architecture" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Architecture
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#1-supabase" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        1. Supabase
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#2-render-api" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        2. Render API
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="2. Render API">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#job-execution-on-the-free-plan" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Job execution on the free plan
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#3-vercel-frontend" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        3. Vercel frontend
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#4-backups" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        4. Backups
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#5-public-launch-checklist" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        5. Public-launch checklist
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#free-tier-limitations" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Free-tier limitations
+      
+    </span>
+  </a>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+      
+    </li>
+  
+
+    
+  </ul>
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+            
+              
+              <div class="md-sidebar md-sidebar--secondary" data-md-component="sidebar" data-md-type="toc" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#architecture" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Architecture
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#1-supabase" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        1. Supabase
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#2-render-api" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        2. Render API
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="2. Render API">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#job-execution-on-the-free-plan" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Job execution on the free plan
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#3-vercel-frontend" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        3. Vercel frontend
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#4-backups" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        4. Backups
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#5-public-launch-checklist" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        5. Public-launch checklist
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#free-tier-limitations" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Free-tier limitations
+      
+    </span>
+  </a>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+          
+          
+            <div class="md-content" data-md-component="content">
+              
+              <article class="md-content__inner md-typeset">
+                
+                  
+
+
+  
+  
+
+
+<h1 id="free-tier-public-deployment">Free-tier public deployment</h1>
+<p>This deployment is intended for portfolio demonstration and community feedback,
+not operational spaceflight decisions. The services below can be configured with
+no paid resources, subject to each provider's current quotas and acceptable-use
+policies.</p>
+<h2 id="architecture">Architecture</h2>
+<p>Three services, all on free plans:</p>
+<ul>
+<li><strong>Vercel Hobby</strong> serves the Next.js frontend and managed HTTPS. Both routes
+  prerender as static files, so no serverless functions are involved.</li>
+<li><strong>Render Free Web Service</strong> runs the Docker image containing FastAPI. Screening
+  executes in the API process, so there is no separate worker and no Redis.
+  Render free services sleep after inactivity, so first requests may be slow.</li>
+<li><strong>Supabase Free</strong> provides PostgreSQL <em>and</em> passwordless authentication in one
+  project.</li>
+</ul>
+<p><strong>GitHub Actions</strong> tests Python, the frontend, browser behavior, migrations,
+dependencies, and the container on every pull request.</p>
+<p>No service key belongs in source control. Copy <code>.env.example</code> locally and enter
+secrets only in the hosting providers' encrypted environment-variable settings.</p>
+<h2 id="1-supabase">1. Supabase</h2>
+<ol>
+<li>Create a free project and enable email magic-link authentication.</li>
+<li>Add the Vercel production URL and preview URLs to Auth redirect URLs.</li>
+<li>Copy the transaction-pooler connection string. Change its scheme to
+   <code>postgresql+psycopg://</code> and store it as <code>SDEBRIS_DATABASE_URL</code> on Render.</li>
+<li>Set these Render variables using the project URL:</li>
+</ol>
+<div class="highlight"><pre><span></span><code>SDEBRIS_AUTH_JWKS_URL=https://PROJECT.supabase.co/auth/v1/.well-known/jwks.json
+SDEBRIS_AUTH_ISSUER=https://PROJECT.supabase.co/auth/v1
+SDEBRIS_AUTH_AUDIENCE=authenticated
+</code></pre></div>
+<p>Supabase is not optional in production. The API refuses to start without
+<code>SDEBRIS_AUTH_JWKS_URL</code> when <code>SDEBRIS_ENV=production</code>, and the local
+development-token endpoint returns <code>404</code> outside development, so a deployment
+without a JWKS issuer has no way for anyone to sign in.</p>
+<p>New authenticated users default to the read-only <code>viewer</code> role. Promote trusted
+accounts by setting <code>app_metadata.role</code> to <code>analyst</code>, <code>operator</code>, or <code>admin</code> from
+a trusted administrative environment. Never let a browser write app metadata.
+Users must sign in again after a role change to receive a refreshed JWT.</p>
+<h2 id="2-render-api">2. Render API</h2>
+<p>Create a Blueprint from <code>render.yaml</code>. Enter every variable marked <code>sync: false</code>.
+Set:</p>
+<div class="highlight"><pre><span></span><code>SDEBRIS_CORS_ORIGINS=https://YOUR_VERCEL_DOMAIN
+</code></pre></div>
+<p>Vercel gives each preview deployment its own hostname, which cannot be listed in
+advance. To let previews reach the API, also set a pattern that matches only your
+own preview domains:</p>
+<div class="highlight"><pre><span></span><code>SDEBRIS_CORS_ORIGIN_REGEX=https://YOUR_PROJECT-[a-z0-9-]+\.vercel\.app
+</code></pre></div>
+<p>Leave it unset to refuse previews. The pattern is matched against the whole
+origin, so it cannot be widened accidentally by a suffix such as
+<code>https://YOUR_PROJECT.attacker.example</code>. An invalid pattern fails at startup
+rather than silently blocking every request.</p>
+<p>The container applies migrations and then binds FastAPI to Render's <code>$PORT</code>.
+<code>/health</code> is a process liveness check; <code>/ready</code> also verifies database
+connectivity. Render terminates public TLS.</p>
+<p>Free Render services sleep after inactivity and provide an ephemeral filesystem.
+All durable application state therefore belongs in Supabase. Cached TLE files may
+disappear safely and will be refreshed.</p>
+<h3 id="job-execution-on-the-free-plan">Job execution on the free plan</h3>
+<p><code>render.yaml</code> sets <code>SDEBRIS_JOB_BACKEND=thread</code>. Screening runs on a thread pool
+inside the API process, which suits a single free instance and removes the need
+for a Redis broker. The trade-off is durability: a job in flight is lost if the
+instance restarts or sleeps. Screening runs are short, so in practice this means
+re-running the command.</p>
+<p>For a durable queue, set <code>SDEBRIS_JOB_BACKEND=redis</code> and supply
+<code>SDEBRIS_REDIS_URL</code> (Upstash offers a free Redis database). The container then
+also starts one Dramatiq worker. With the thread backend it starts no worker at
+all.</p>
+<h2 id="3-vercel-frontend">3. Vercel frontend</h2>
+<p>Import the repository, set the root directory to <code>web</code>, and configure:</p>
+<div class="highlight"><pre><span></span><code>NEXT_PUBLIC_SDEBRIS_API_URL=https://YOUR_API.onrender.com
+NEXT_PUBLIC_SUPABASE_URL=https://PROJECT.supabase.co
+NEXT_PUBLIC_SUPABASE_ANON_KEY=YOUR_PUBLISHABLE_ANON_KEY
+</code></pre></div>
+<p><code>NEXT_PUBLIC_*</code> values are inlined at build time, so changing one requires a
+redeploy rather than only an environment-variable edit.</p>
+<p>The build script copies Cesium's runtime assets into <code>public/cesium</code> (about
+23 MB, git-ignored and regenerated on every build), so no extra configuration is
+needed for the globe.</p>
+<p>The Supabase anon/publishable key is designed for browser use. The service-role
+key is privileged and must never be added to Vercel or exposed as <code>NEXT_PUBLIC_*</code>.</p>
+<h2 id="4-backups">4. Backups</h2>
+<p>Supabase Free does not provide point-in-time recovery. Run a logical backup
+before migrations and periodically from a trusted computer with <code>pg_dump</code>:</p>
+<div class="highlight"><pre><span></span><code><span class="p">.\</span><span class="n">scripts</span><span class="p">\</span><span class="n">backup_database</span><span class="p">.</span><span class="n">ps1</span> <span class="n">-DatabaseUrl</span> <span class="nv">$env:SDEBRIS_DATABASE_URL</span>
+</code></pre></div>
+<p>Backup files are ignored by Git. Store encrypted copies in a private location.
+Test recovery periodically with <code>pg_restore</code> into a disposable database.</p>
+<h2 id="5-public-launch-checklist">5. Public-launch checklist</h2>
+<ul>
+<li>Confirm <code>/health</code>, <code>/ready</code>, and <code>/methodology</code> return successfully.</li>
+<li>Confirm an anonymous mutation returns <code>401</code>.</li>
+<li>Confirm a viewer cannot start screening and receives <code>403</code>.</li>
+<li>Confirm an analyst can enqueue a screening and receives progress events.</li>
+<li>Confirm the live activity stream connects: the console header should read
+  <code>STREAM LIVE</code> rather than <code>STREAM OFFLINE</code>.</li>
+<li>Restrict Supabase redirects and API CORS to the deployed domains.</li>
+<li>Enable repository branch protection and required CI checks.</li>
+<li>Add issue templates for bug reports and scientific-method feedback.</li>
+<li>Put the non-operational limitation in the repository description and launch post.</li>
+</ul>
+<h2 id="free-tier-limitations">Free-tier limitations</h2>
+<p>This stack may cold-start, pause after inactivity, and enforce storage, bandwidth,
+or build quotas. It is public-deployment-ready for a low-traffic portfolio, not
+high availability. Configure spend caps or omit billing details where providers
+allow it; exceeding a free quota should suspend service rather than incur charges.</p>
+<p>Three consequences are specific to this application:</p>
+<ul>
+<li><strong>Cold starts are visible.</strong> After the Render service sleeps, the first request
+  can take roughly a minute. The console degrades honestly rather than breaking:
+  the activity feed reconnects with exponential backoff and its header reports
+  <code>RECONNECTING</code>, then <code>OFFLINE</code> after repeated failures, while continuing to
+  retry.</li>
+<li><strong>An open dashboard keeps the service awake.</strong> The console holds a Server-Sent
+  Events connection open for the activity feed, so the instance does not idle
+  while anyone has the page open. That keeps the app responsive but consumes free
+  instance hours continuously; a single forgotten tab can spend the monthly
+  allowance.</li>
+<li><strong>Supabase free projects pause after a period of inactivity</strong> and need to be
+  resumed from the dashboard, which matters for a portfolio link that is visited
+  irregularly.</li>
+</ul>
+<p>If the cold starts and pauses become a problem, the component to move first is
+the API: an always-on host (for example an Oracle Cloud Always Free VM) removes
+both, and the frontend and database can stay where they are.</p>
+
+
+
+
+
+
+
+
+
+
+
+
+                
+              </article>
+            </div>
+          
+          
+<script>var target=document.getElementById(location.hash.slice(1));target&&target.name&&(target.checked=target.name.startsWith("__tabbed_"))</script>
+        </div>
+        
+      </main>
+      
+        <footer class="md-footer">
+  
+  <div class="md-footer-meta md-typeset">
+    <div class="md-footer-meta__inner md-grid">
+      <div class="md-copyright">
+  
+  
+    Made with
+    <a href="https://squidfunk.github.io/mkdocs-material/" target="_blank" rel="noopener">
+      Material for MkDocs
+    </a>
+  
+</div>
+      
+    </div>
+  </div>
+</footer>
+      
+    </div>
+    <div class="md-dialog" data-md-component="dialog">
+      <div class="md-dialog__inner md-typeset"></div>
+    </div>
+    
+    
+    
+      
+      
+      <script id="__config" type="application/json">{"annotate": null, "base": "..", "features": ["navigation.sections", "content.code.copy"], "search": "../assets/javascripts/workers/search.2c215733.min.js", "tags": null, "translations": {"clipboard.copied": "Copied to clipboard", "clipboard.copy": "Copy to clipboard", "search.result.more.one": "1 more on this page", "search.result.more.other": "# more on this page", "search.result.none": "No matching documents", "search.result.one": "1 matching document", "search.result.other": "# matching documents", "search.result.placeholder": "Type to start searching", "search.result.term.missing": "Missing", "select.version": "Select version"}, "version": null}</script>
+    
+    
+      <script src="../assets/javascripts/bundle.d7400e89.min.js"></script>
+      
+    
+  </body>
+</html>
