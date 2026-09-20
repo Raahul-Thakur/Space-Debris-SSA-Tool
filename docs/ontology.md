@@ -92,6 +92,16 @@ POST   /events/{id}/maneuvers
 POST   /cases/{id}/actions/{action}
 POST   /cases/{id}/decisions
 POST   /alerts/{id}/acknowledge
+GET    /events/assessed
+GET    /activity
+GET    /stream/activity
 GET    /audit-actions
 GET    /lineage/{entity_type}/{entity_id}
 ```
+
+`GET /activity` returns one chronological feed merging conjunctions, alerts,
+screening-job transitions, command executions, monitoring changes, and audited
+governance actions. `GET /stream/activity` serves the same items as Server-Sent
+Events. Both are cursor-based: every item carries an `occurred_at` timestamp and
+a client resumes from the last one it saw, so a dropped connection replays what
+was missed without duplicating what was already delivered.

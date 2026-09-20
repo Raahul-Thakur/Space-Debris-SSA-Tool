@@ -12,6 +12,9 @@ from sqlalchemy.orm import Session, sessionmaker
 from sdebris.config import REPO_ROOT, load_config
 from sdebris.ontology.orm import Base
 
+#: How long a SQLite writer waits for a competing lock before giving up.
+SQLITE_BUSY_TIMEOUT_MS = 10_000
+
 
 def resolve_database_url(url: str | None = None) -> str:
     configured = url or os.getenv("SDEBRIS_DATABASE_URL") or load_config().ontology.database_url
@@ -32,11 +35,21 @@ def create_database_engine(url: str | None = None) -> Engine:
     connect_args = {"check_same_thread": False} if database_url.startswith("sqlite") else {}
     engine = create_engine(database_url, connect_args=connect_args, pool_pre_ping=True)
     if database_url.startswith("sqlite"):
+        on_disk = ":memory:" not in database_url
 
         @event.listens_for(engine, "connect")
-        def enable_sqlite_foreign_keys(dbapi_connection, _connection_record) -> None:
+        def configure_sqlite(dbapi_connection, _connection_record) -> None:
             cursor = dbapi_connection.cursor()
             cursor.execute("PRAGMA foreign_keys=ON")
+            if on_disk:
+                # The API holds long-lived readers open for the activity and
+                # job-progress streams while worker threads write. Under the
+                # default rollback journal those readers block every write and
+                # the writer fails immediately with "database is locked", so
+                # WAL (concurrent reader + writer) and a wait-instead-of-fail
+                # busy timeout are both required.
+                cursor.execute("PRAGMA journal_mode=WAL")
+                cursor.execute(f"PRAGMA busy_timeout={SQLITE_BUSY_TIMEOUT_MS}")
             cursor.close()
 
     return engine

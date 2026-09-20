@@ -35,25 +35,42 @@ def configure_logging() -> None:
     root.setLevel(os.getenv("SDEBRIS_LOG_LEVEL", "INFO").upper())
 
 
+#: Job backends the API will start under in production.
+PRODUCTION_JOB_BACKENDS = ("thread", "redis")
+
+
 def validate_environment() -> None:
     if os.getenv("SDEBRIS_ENV", "development").lower() != "production":
         return
-    required = (
+    backend = os.getenv("SDEBRIS_JOB_BACKEND", "thread").lower()
+    if backend not in PRODUCTION_JOB_BACKENDS:
+        raise RuntimeError(
+            "SDEBRIS_JOB_BACKEND must be one of "
+            f"{', '.join(PRODUCTION_JOB_BACKENDS)}; got {backend!r}"
+        )
+    required = [
         "SDEBRIS_DATABASE_URL",
-        "SDEBRIS_REDIS_URL",
         "SDEBRIS_AUTH_JWKS_URL",
         "SDEBRIS_AUTH_ISSUER",
         "SDEBRIS_CORS_ORIGINS",
-    )
+    ]
+    # Redis is only part of the contract when it is the queue being used. The
+    # single-instance free deployment runs the thread backend instead.
+    if backend == "redis":
+        required.append("SDEBRIS_REDIS_URL")
     missing = [name for name in required if not os.getenv(name)]
     if missing:
         raise RuntimeError(f"missing production environment variables: {', '.join(missing)}")
     if not os.environ["SDEBRIS_DATABASE_URL"].startswith("postgresql"):
         raise RuntimeError("production requires PostgreSQL; SQLite is ephemeral")
-    if os.getenv("SDEBRIS_JOB_BACKEND") != "redis":
-        raise RuntimeError("production requires SDEBRIS_JOB_BACKEND=redis")
     if "localhost" in os.environ["SDEBRIS_CORS_ORIGINS"]:
         raise RuntimeError("production CORS origins must not contain localhost")
+    if backend == "thread":
+        logging.getLogger("sdebris.runtime").warning(
+            "running production screening on the in-process thread pool; "
+            "a job in flight is lost if the instance restarts. Set "
+            "SDEBRIS_JOB_BACKEND=redis with SDEBRIS_REDIS_URL for a durable queue."
+        )
 
 
 async def request_log_middleware(request: Request, call_next):

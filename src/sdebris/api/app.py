@@ -5,9 +5,10 @@ from __future__ import annotations
 import asyncio
 import json
 import os
+import re
 from collections.abc import Iterator
 from contextlib import asynccontextmanager
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from typing import Annotated
 
 import uvicorn
@@ -18,6 +19,7 @@ from sqlalchemy import select, text
 from sqlalchemy.orm import Session
 
 from sdebris import __version__
+from sdebris.activity import MAX_FEED_ITEMS, collect_activity, feed_cursor
 from sdebris.auth import Authenticator, PrincipalDep, require_role
 from sdebris.commands import CommandParseError, parse_command
 from sdebris.commands.parser import COMMAND_HELP
@@ -84,6 +86,11 @@ from sdebris.propagation import make_time_grid, propagate_objects
 from sdebris.runtime import configure_logging, request_log_middleware, validate_environment
 
 
+#: Seconds between activity-feed reads on an open SSE connection.
+ACTIVITY_POLL_SECONDS = 2.0
+#: How far back a client with no cursor is replayed when it first connects.
+ACTIVITY_REPLAY_HOURS = 6
+
 ONTOLOGY = OntologyDescription(
     object_types={
         "SpaceObject": ["norad_id", "owner", "orbit_class", "status"],
@@ -115,6 +122,36 @@ def get_session(request: Request) -> Iterator[Session]:
 
 
 SessionDep = Annotated[Session, Depends(get_session)]
+
+
+def _assessed_events(session: Session, tier: str | None = None) -> dict[str, object]:
+    """Conjunctions joined to their latest risk tier, ordered by TCA."""
+    statement = (
+        select(ConjunctionEventRecord, RiskAssessmentRecord)
+        .outerjoin(
+            RiskAssessmentRecord,
+            RiskAssessmentRecord.event_id == ConjunctionEventRecord.id,
+        )
+        .order_by(ConjunctionEventRecord.tca)
+        .limit(100)
+    )
+    if tier:
+        statement = statement.where(RiskAssessmentRecord.tier == tier)
+    rows = session.execute(statement).all()
+    return {
+        "events": [
+            {
+                "id": event.id,
+                "tca": event.tca.isoformat(),
+                "miss_distance_km": event.miss_distance_km,
+                "tier": assessment.tier if assessment else "unassessed",
+                "probability_of_collision": (
+                    assessment.probability_of_collision if assessment else None
+                ),
+            }
+            for event, assessment in rows
+        ]
+    }
 
 
 def _event_explanation(event_id: str, session: Session) -> dict[str, object]:
@@ -224,32 +261,7 @@ def _execute_immediate_action(
         return seed_well_known_objects(session, actor)
     if action == "events.list":
         tier = arguments.get("tier")
-        statement = (
-            select(ConjunctionEventRecord, RiskAssessmentRecord)
-            .outerjoin(
-                RiskAssessmentRecord,
-                RiskAssessmentRecord.event_id == ConjunctionEventRecord.id,
-            )
-            .order_by(ConjunctionEventRecord.tca)
-            .limit(100)
-        )
-        if tier:
-            statement = statement.where(RiskAssessmentRecord.tier == str(tier))
-        rows = session.execute(statement).all()
-        return {
-            "events": [
-                {
-                    "id": event.id,
-                    "tca": event.tca.isoformat(),
-                    "miss_distance_km": event.miss_distance_km,
-                    "tier": assessment.tier if assessment else "unassessed",
-                    "probability_of_collision": (
-                        assessment.probability_of_collision if assessment else None
-                    ),
-                }
-                for event, assessment in rows
-            ]
-        }
+        return _assessed_events(session, None if tier is None else str(tier))
     if action == "event.explain":
         return _event_explanation(str(arguments["event_id"]), session)
     if action == "case.assign":
@@ -306,9 +318,21 @@ def create_app(database_url: str | None = None) -> FastAPI:
     allowed_origins = os.getenv(
         "SDEBRIS_CORS_ORIGINS", "http://localhost:3000,http://127.0.0.1:3000"
     ).split(",")
+    # Vercel gives every preview deployment its own hostname, which cannot be
+    # enumerated ahead of time. This optional pattern lets those origins through
+    # without widening the allowlist to everything; it is unset by default.
+    origin_regex = os.getenv("SDEBRIS_CORS_ORIGIN_REGEX", "").strip() or None
+    if origin_regex is not None:
+        try:
+            re.compile(origin_regex)
+        except re.error as exc:
+            raise RuntimeError(
+                f"SDEBRIS_CORS_ORIGIN_REGEX is not a valid regular expression: {exc}"
+            ) from exc
     app.add_middleware(
         CORSMiddleware,
         allow_origins=[origin.strip() for origin in allowed_origins if origin.strip()],
+        allow_origin_regex=origin_regex,
         allow_credentials=True,
         allow_methods=["*"],
         allow_headers=["*"],
@@ -442,6 +466,14 @@ def create_app(database_url: str | None = None) -> FastAPI:
     ):
         require_role(principal, OperatorRole.ANALYST)
         return OntologyService(session).create_event(payload)
+
+    @app.get("/events/assessed")
+    def list_assessed_events(
+        session: SessionDep, principal: PrincipalDep, tier: str | None = None
+    ) -> dict[str, object]:
+        """Read-only equivalent of `events list`, for dashboard polling."""
+        require_role(principal, OperatorRole.VIEWER)
+        return _assessed_events(session, tier)
 
     @app.get("/events", response_model=list[ConjunctionEventView])
     def list_events(
@@ -612,6 +644,10 @@ def create_app(database_url: str | None = None) -> FastAPI:
             job_payload = ScreeningJobCreate(
                 **plan.arguments, actor=principal.actor, command=payload.command
             )
+            # The job manager writes on its own connection. Release this
+            # request's write transaction first: holding both at once
+            # self-deadlocks on SQLite, which allows a single writer.
+            session.commit()
             job = jobs.create(job_payload)
             execution.status = JobStatus.QUEUED.value
             execution.job_id = job.id
@@ -800,6 +836,67 @@ def create_app(database_url: str | None = None) -> FastAPI:
         require_role(principal, OperatorRole.OPERATOR)
         payload = payload.model_copy(update={"actor": principal.actor})
         return OntologyService(session).acknowledge_alert(alert_id, payload)
+
+    # ------------------------------------------------------------ live feed
+    def _activity_cutoff(since: str | None) -> datetime:
+        """Parse a client cursor, defaulting to a short replay window."""
+        if since is None:
+            return datetime.now(timezone.utc) - timedelta(hours=ACTIVITY_REPLAY_HOURS)
+        try:
+            parsed = datetime.fromisoformat(since.replace("Z", "+00:00"))
+        except ValueError as exc:
+            raise HTTPException(
+                status_code=422, detail="since must be an ISO-8601 timestamp"
+            ) from exc
+        return parsed if parsed.tzinfo else parsed.replace(tzinfo=timezone.utc)
+
+    @app.get("/activity")
+    def list_activity(
+        session: SessionDep,
+        principal: PrincipalDep,
+        since: str | None = None,
+        limit: int = Query(default=50, ge=1, le=MAX_FEED_ITEMS),
+    ) -> dict[str, object]:
+        cutoff = _activity_cutoff(since)
+        items = collect_activity(session, cutoff, limit)
+        return {
+            "items": [item.as_dict() for item in items],
+            "cursor": feed_cursor(items, cutoff),
+            "server_time": datetime.now(timezone.utc).isoformat(),
+        }
+
+    @app.get("/stream/activity")
+    async def stream_activity(
+        request: Request,
+        principal: PrincipalDep,
+        since: str | None = None,
+        limit: int = Query(default=50, ge=1, le=MAX_FEED_ITEMS),
+    ):
+        cutoff = _activity_cutoff(since)
+
+        async def event_stream():
+            watermark = cutoff
+            while not await request.is_disconnected():
+                with database.session_factory() as session:
+                    items = collect_activity(session, watermark, limit)
+                if items:
+                    watermark = max(item.occurred_at for item in items)
+                    for item in items:
+                        yield (
+                            f"id: {item.id}\nevent: activity\n"
+                            f"data: {json.dumps(item.as_dict())}\n\n"
+                        )
+                else:
+                    yield (
+                        f": heartbeat {datetime.now(timezone.utc).isoformat()}\n\n"
+                    )
+                await asyncio.sleep(ACTIVITY_POLL_SECONDS)
+
+        return StreamingResponse(
+            event_stream(),
+            media_type="text/event-stream",
+            headers={"Cache-Control": "no-store", "X-Accel-Buffering": "no"},
+        )
 
     # -------------------------------------------------------------- governance
     @app.get("/audit-actions", response_model=list[AuditActionView])
