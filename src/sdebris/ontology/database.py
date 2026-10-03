@@ -32,7 +32,19 @@ def resolve_database_url(url: str | None = None) -> str:
 
 def create_database_engine(url: str | None = None) -> Engine:
     database_url = resolve_database_url(url)
-    connect_args = {"check_same_thread": False} if database_url.startswith("sqlite") else {}
+    if database_url.startswith("sqlite"):
+        connect_args: dict[str, object] = {"check_same_thread": False}
+    elif database_url.startswith("postgresql+psycopg"):
+        # Supabase's transaction pooler (and any PgBouncer in transaction mode)
+        # hands out a different server connection per transaction, while
+        # psycopg starts preparing statements server-side once it has seen the
+        # same query a few times. The prepared statement is then missing, or
+        # worse, its name collides with one left by another client, which
+        # surfaces as DuplicatePreparedStatement. Disabling the client-side
+        # prepare cache is the supported way to use a transaction pooler.
+        connect_args = {"prepare_threshold": None}
+    else:
+        connect_args = {}
     engine = create_engine(database_url, connect_args=connect_args, pool_pre_ping=True)
     if database_url.startswith("sqlite"):
         on_disk = ":memory:" not in database_url

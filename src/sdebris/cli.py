@@ -10,6 +10,7 @@ Examples
 
 from __future__ import annotations
 
+import os
 from datetime import datetime
 
 import click
@@ -18,7 +19,7 @@ from rich.table import Table
 
 from sdebris import __version__
 from sdebris.alerts import AlertDispatcher
-from sdebris.config import load_config
+from sdebris.config import Config, load_config, load_env
 from sdebris.ingest import TLECache, refresh_catalog
 from sdebris.ontology import Database, persist_screening_result
 from sdebris.reports import write_report
@@ -29,10 +30,25 @@ console = Console()
 _TIER_STYLE = {"critical": "bold red", "watch": "yellow", "nominal": "green"}
 
 
+def _database_url(override: str | None, config: Config) -> str:
+    """Resolve which database the CLI should write to.
+
+    An explicit flag wins, then the environment, then the config file. The
+    environment has to be consulted here rather than left to
+    ``resolve_database_url``: passing the config value straight through
+    shadowed ``SDEBRIS_DATABASE_URL`` entirely, so the CLI wrote to the local
+    SQLite file while the API was pointed at Postgres, and a `screen --persist-
+    ontology` appeared to succeed while putting its events somewhere nobody
+    was reading.
+    """
+    return override or os.getenv("SDEBRIS_DATABASE_URL") or config.ontology.database_url
+
+
 @click.group(help="Space debris SSA tool — conjunction screening from live TLE data.")
 @click.version_option(__version__, prog_name="sdebris")
 def cli() -> None:
-    pass
+    # So the CLI and the API read the same database and credentials.
+    load_env()
 
 
 @cli.command(help="Refresh the local TLE cache from CelesTrak.")
@@ -65,7 +81,7 @@ def catalog(config_path: str | None) -> None:
 @click.option("--config", "config_path", type=click.Path(exists=True), default=None)
 def ontology_init(database_url: str | None, config_path: str | None) -> None:
     config = load_config(config_path)
-    database = Database(database_url or config.ontology.database_url)
+    database = Database(_database_url(database_url, config))
     database.initialize()
     console.print(f"Ontology database initialized at [cyan]{database.engine.url}[/cyan]")
     database.engine.dispose()
@@ -132,7 +148,7 @@ def screen(
         console.print(f"Alerts dispatched for [bold]{len(dispatched)}[/bold] critical event(s).")
 
     if persist_ontology:
-        database = Database(config.ontology.database_url)
+        database = Database(_database_url(None, config))
         database.initialize()
         with console.status("Versioning inputs and persisting the ontology run..."):
             with database.session_factory() as session:

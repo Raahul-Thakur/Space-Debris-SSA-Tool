@@ -27,3 +27,8 @@ services:
       # preview deployments can reach the API. See docs/deployment-free-tier.md.
       - key: SDEBRIS_CORS_ORIGIN_REGEX
         sync: false
+      # Signing secret from the Dodo Payments webhook settings. Without it the
+      # billing webhook refuses every delivery with 503 rather than trusting
+      # unsigned input.
+      - key: SDEBRIS_BILLING_WEBHOOK_SECRET
+        sync: false

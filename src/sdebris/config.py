@@ -1,22 +1,47 @@
 """Typed configuration model and YAML loader.
 
 The whole pipeline is driven by a single :class:`Config` object so that the CLI,
-the Streamlit app, and the scheduled job all behave identically. Defaults live in
+the API, and the scheduled job all behave identically. Defaults live in
 ``configs/default.yaml`` and any field can be overridden by a user-supplied YAML.
 """
 
 from __future__ import annotations
 
+import os
 from pathlib import Path
 from typing import Any
 
 import yaml
+from dotenv import load_dotenv
 from pydantic import BaseModel, Field
 
 # Repository root resolved relative to this file: src/sdebris/config.py -> repo/
 PACKAGE_ROOT = Path(__file__).resolve().parent
 REPO_ROOT = PACKAGE_ROOT.parent.parent
 DEFAULT_CONFIG_PATH = REPO_ROOT / "configs" / "default.yaml"
+ENV_FILE = REPO_ROOT / ".env"
+
+
+def load_env() -> None:
+    """Read ``.env`` from the repository root, if one exists.
+
+    Real environment variables always win: a deployment sets its configuration
+    in the platform dashboard, and a stray ``.env`` left in an image must never
+    quietly override it. Local development is the only place the file is
+    expected to exist, which is why its absence is not an error.
+
+    This lives here rather than in ``runtime`` so the CLI can call it without
+    pulling in the API's optional dependencies.
+
+    Setting ``SDEBRIS_SKIP_DOTENV`` suppresses the read entirely. The test
+    suite does this: a developer pointing ``.env`` at a real Supabase project
+    must not thereby change what the tests exercise, or in the worst case have
+    them run against live data.
+    """
+    if os.getenv("SDEBRIS_SKIP_DOTENV"):
+        return
+    if ENV_FILE.is_file():
+        load_dotenv(ENV_FILE, override=False)
 
 
 class IngestionConfig(BaseModel):

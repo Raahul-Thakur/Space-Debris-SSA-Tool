@@ -8,8 +8,12 @@ from logging.config import fileConfig
 from alembic import context
 from sqlalchemy import engine_from_config, pool
 
+from sdebris.config import load_env
 from sdebris.ontology.database import resolve_database_url
 from sdebris.ontology.orm import Base
+
+# So `alembic upgrade head` targets the same database the API will use.
+load_env()
 
 config = context.config
 if config.config_file_name is not None:
