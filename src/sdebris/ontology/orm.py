@@ -419,3 +419,54 @@ class CommandExecutionRecord(Base):
         DateTime(timezone=True), default=utcnow, nullable=False
     )
     completed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+
+
+class EntitlementRecord(TimestampMixin, Base):
+    """What a person has paid for.
+
+    Keyed on email rather than the auth subject: a merchant-of-record webhook
+    arrives with the buyer's email and usually before they have ever signed in,
+    so the subject is filled in on their first authenticated request.
+    """
+
+    __tablename__ = "entitlements"
+    __table_args__ = (
+        UniqueConstraint("external_ref", name="uq_entitlement_external_ref"),
+        Index("ix_entitlement_email_status", "email", "status"),
+    )
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=new_id)
+    email: Mapped[str] = mapped_column(String(255), nullable=False, index=True)
+    subject: Mapped[str | None] = mapped_column(String(255), index=True)
+    plan: Mapped[str] = mapped_column(String(32), nullable=False)
+    status: Mapped[str] = mapped_column(String(32), default="active", nullable=False)
+    source: Mapped[str] = mapped_column(String(32), default="dodo", nullable=False)
+    #: Provider payment or subscription id; also the idempotency key for grants.
+    external_ref: Mapped[str | None] = mapped_column(String(255))
+    granted_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=utcnow, nullable=False
+    )
+    #: NULL means the grant never expires, which is how lifetime access is held.
+    expires_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    metadata_json: Mapped[dict[str, Any]] = mapped_column(
+        JSON, default=dict, nullable=False
+    )
+
+
+class BillingEventRecord(Base):
+    """Every webhook the billing provider delivered, for replay safety and audit."""
+
+    __tablename__ = "billing_events"
+    __table_args__ = (
+        UniqueConstraint("provider", "event_id", name="uq_billing_event_identity"),
+    )
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=new_id)
+    provider: Mapped[str] = mapped_column(String(32), nullable=False)
+    event_id: Mapped[str] = mapped_column(String(255), nullable=False)
+    event_type: Mapped[str] = mapped_column(String(64), nullable=False)
+    payload: Mapped[dict[str, Any]] = mapped_column(JSON, default=dict, nullable=False)
+    outcome: Mapped[str] = mapped_column(String(64), nullable=False)
+    received_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=utcnow, nullable=False
+    )
