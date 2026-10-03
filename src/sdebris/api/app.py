@@ -20,14 +20,36 @@ from sqlalchemy.orm import Session
 
 from sdebris import __version__
 from sdebris.activity import MAX_FEED_ITEMS, collect_activity, feed_cursor
-from sdebris.auth import Authenticator, PrincipalDep, require_role
+from sdebris.auth import Authenticator, Principal, PrincipalDep, require_role
+from sdebris.billing import (
+    FOUNDING_LIFETIME,
+    FOUNDING_SEATS,
+    SUBSCRIPTION,
+    Plan,
+    WebhookError,
+    active_entitlement,
+    as_utc,
+    check_monitoring_allowed,
+    check_screening_allowed,
+    count_lifetime_grants,
+    grant_expiry,
+    limits_for,
+    parse_event,
+    plan_for,
+    usage_for,
+    verify_signature,
+)
+from sdebris.billing.entitlements import grant as grant_entitlement
+from sdebris.billing.entitlements import revoke as revoke_entitlement
+from sdebris.billing.webhooks import GRANTING_EVENTS, REVOKING_EVENTS
 from sdebris.commands import CommandParseError, parse_command
 from sdebris.commands.parser import COMMAND_HELP
-from sdebris.config import load_config
+from sdebris.config import load_config, load_env
 from sdebris.ingest.celestrak import CelesTrakClient
 from sdebris.jobs import ScreeningJobManager
 from sdebris.models import SpaceObject
 from sdebris.monitoring import seed_well_known_objects
+from sdebris.nl import narrate_event, suggest_from_rules
 from sdebris.ontology import (
     ConflictError,
     Database,
@@ -37,6 +59,7 @@ from sdebris.ontology import (
 )
 from sdebris.ontology.enums import ActionType, JobStatus, OperatorRole
 from sdebris.ontology.orm import (
+    BillingEventRecord,
     CommandExecutionRecord,
     ConjunctionEventRecord,
     ElementSetRecord,
@@ -61,19 +84,19 @@ from sdebris.ontology.schemas import (
     LineageEdgeView,
     ManeuverScenarioCreate,
     ManeuverScenarioView,
-    MonitoringCaseView,
     MonitoredObjectView,
+    MonitoringCaseView,
     OntologyDescription,
     OpenCaseRequest,
     OperatorDecisionCreate,
     OperatorDecisionView,
     RiskAssessmentCreate,
     RiskAssessmentView,
-    ScreeningRunCreate,
-    ScreeningRunView,
     ScreeningJobCreate,
     ScreeningJobEventView,
     ScreeningJobView,
+    ScreeningRunCreate,
+    ScreeningRunView,
     SensorObservationCreate,
     SensorObservationView,
     SpaceObjectCreate,
@@ -83,8 +106,16 @@ from sdebris.ontology.schemas import (
     TrajectoryResponse,
 )
 from sdebris.propagation import make_time_grid, propagate_objects
+from sdebris.ratelimit import (
+    ANONYMOUS_PROPAGATIONS_PER_MINUTE,
+    ANONYMOUS_REQUESTS_PER_MINUTE,
+    SlidingWindowLimiter,
+    client_address,
+)
 from sdebris.runtime import configure_logging, request_log_middleware, validate_environment
 
+#: Billing provider whose webhooks this deployment accepts.
+BILLING_PROVIDER = "dodo"
 
 #: Seconds between activity-feed reads on an open SSE connection.
 ACTIVITY_POLL_SECONDS = 2.0
@@ -166,7 +197,7 @@ def _event_explanation(event_id: str, session: Session) -> dict[str, object]:
     )
     primary = session.get(SpaceObjectRecord, event.primary_object_id)
     secondary = session.get(SpaceObjectRecord, event.secondary_object_id)
-    return {
+    payload: dict[str, object] = {
         "event_id": event.id,
         "primary": {
             "norad_id": primary.norad_id if primary else None,
@@ -190,6 +221,18 @@ def _event_explanation(event_id: str, session: Session) -> dict[str, object]:
         ),
         "model_version": assessment.model_version if assessment else None,
     }
+    element = session.scalar(
+        select(ElementSetRecord)
+        .where(ElementSetRecord.space_object_id == event.primary_object_id)
+        .order_by(ElementSetRecord.epoch.desc())
+        .limit(1)
+    )
+    # The narration is derived from the numbers above, never generated
+    # independently of them.
+    payload["narrative"] = narrate_event(
+        payload, tle_epoch=element.epoch if element else None
+    )
+    return payload
 
 
 def _refresh_orbit(norad_id: str, session: Session) -> dict[str, object]:
@@ -289,10 +332,15 @@ def _execute_immediate_action(
 
 
 def create_app(database_url: str | None = None) -> FastAPI:
+    # Before anything reads os.environ: logging level, the production checks,
+    # the database URL and the authenticator all come from the environment.
+    load_env()
     configure_logging()
     validate_environment()
     database = Database(database_url)
     jobs = ScreeningJobManager(database.session_factory)
+    command_limiter = SlidingWindowLimiter()
+    anonymous_limiter = SlidingWindowLimiter()
     authenticator = Authenticator()
 
     @asynccontextmanager
@@ -314,6 +362,40 @@ def create_app(database_url: str | None = None) -> FastAPI:
     app.state.database = database
     app.state.jobs = jobs
     app.state.authenticator = authenticator
+    @app.middleware("http")
+    async def throttle_anonymous(request: Request, call_next):
+        """Meter unauthenticated traffic by client address.
+
+        Signed-in callers are metered per principal by their plan, and their
+        quotas are accounted against an identity. Anonymous readers have no
+        identity, so the only thing left to key on is the address. Propagation
+        is budgeted separately because it is the one anonymous operation that
+        costs real CPU.
+        """
+        if request.headers.get("authorization"):
+            return await call_next(request)
+        address = client_address(request)
+        propagating = request.url.path.endswith("/trajectory")
+        key = f"anon:{'propagate' if propagating else 'read'}:{address}"
+        limit = (
+            ANONYMOUS_PROPAGATIONS_PER_MINUTE
+            if propagating
+            else ANONYMOUS_REQUESTS_PER_MINUTE
+        )
+        if not anonymous_limiter.check(key, limit):
+            retry_after = anonymous_limiter.retry_after(key)
+            return JSONResponse(
+                status_code=429,
+                content={
+                    "detail": (
+                        "too many requests from this address; sign in for a "
+                        "per-account allowance"
+                    )
+                },
+                headers={"Retry-After": str(retry_after)},
+            )
+        return await call_next(request)
+
     app.middleware("http")(request_log_middleware)
     allowed_origins = os.getenv(
         "SDEBRIS_CORS_ORIGINS", "http://localhost:3000,http://127.0.0.1:3000"
@@ -351,6 +433,17 @@ def create_app(database_url: str | None = None) -> FastAPI:
         _request: Request, exc: InvalidActionError
     ) -> JSONResponse:
         return JSONResponse(status_code=422, content={"detail": str(exc)})
+
+    def _enforce_command_rate(principal: Principal, plan: Plan) -> None:
+        limit = limits_for(plan).commands_per_minute
+        if not command_limiter.check(principal.subject, limit):
+            raise HTTPException(
+                status_code=429,
+                detail=f"Rate limit of {limit} commands per minute exceeded.",
+                headers={
+                    "Retry-After": str(command_limiter.retry_after(principal.subject))
+                },
+            )
 
     @app.get("/health")
     def health() -> dict[str, str]:
@@ -469,10 +562,15 @@ def create_app(database_url: str | None = None) -> FastAPI:
 
     @app.get("/events/assessed")
     def list_assessed_events(
-        session: SessionDep, principal: PrincipalDep, tier: str | None = None
+        session: SessionDep, tier: str | None = None
     ) -> dict[str, object]:
-        """Read-only equivalent of `events list`, for dashboard polling."""
-        require_role(principal, OperatorRole.VIEWER)
+        """Read-only equivalent of `events list`, for dashboard polling.
+
+        Open to anonymous readers, like ``GET /events`` beside it. The two
+        serve the same rows in different shapes, so requiring a role here and
+        not there protected nothing; it only broke the dashboard for visitors
+        who had not signed in. Anonymous traffic is metered by address instead.
+        """
         return _assessed_events(session, tier)
 
     @app.get("/events", response_model=list[ConjunctionEventView])
@@ -488,8 +586,15 @@ def create_app(database_url: str | None = None) -> FastAPI:
 
     # ---------------------------------------------------------- command center
     @app.post("/screening-jobs", response_model=ScreeningJobView, status_code=202)
-    def create_screening_job(payload: ScreeningJobCreate, principal: PrincipalDep):
+    def create_screening_job(
+        payload: ScreeningJobCreate, principal: PrincipalDep, session: SessionDep
+    ):
         require_role(principal, OperatorRole.ANALYST)
+        plan = plan_for(session, principal)
+        _enforce_command_rate(principal, plan)
+        check_screening_allowed(
+            session, principal, plan, window_hours=payload.window_hours
+        )
         payload = payload.model_copy(update={"actor": principal.actor})
         return jobs.create(payload)
 
@@ -573,6 +678,26 @@ def create_app(database_url: str | None = None) -> FastAPI:
             "security": "Commands are parsed against an allowlist and never passed to a shell.",
         }
 
+    @app.post("/commands/interpret")
+    def interpret_command(
+        payload: CommandRequest, principal: PrincipalDep, session: SessionDep
+    ) -> dict[str, object]:
+        """Translate plain English into a command, without running it.
+
+        The result is a proposal. It has already been parsed by the same
+        allowlist grammar as hand-typed input, so it cannot name an action the
+        platform does not have, and the operator still has to confirm it.
+        """
+        tier = plan_for(session, principal)
+        _enforce_command_rate(principal, tier)
+        suggestion = suggest_from_rules(payload.command)
+        return {
+            "understood": suggestion.understood,
+            "command": suggestion.command,
+            "rationale": suggestion.rationale,
+            "source": suggestion.source,
+        }
+
     @app.post("/commands/execute", response_model=CommandResponse)
     def execute_command(
         payload: CommandRequest, principal: PrincipalDep, session: SessionDep
@@ -628,6 +753,39 @@ def create_app(database_url: str | None = None) -> FastAPI:
                 status_code=409,
                 detail="case.close is consequential and requires explicit confirmation",
             )
+
+        # Roles decide what a principal may do; the plan decides how much.
+        # `monitor seed-known` is deliberately not metered: it seeds a fixed,
+        # idempotent set that the free allowance already accommodates.
+        tier = plan_for(session, principal)
+        try:
+            _enforce_command_rate(principal, tier)
+            if plan.action == "screen":
+                check_screening_allowed(
+                    session,
+                    principal,
+                    tier,
+                    window_hours=float(plan.arguments["window_hours"]),
+                )
+            elif plan.action == "monitor.add":
+                check_monitoring_allowed(session, principal, tier)
+        except HTTPException as exc:
+            # Recorded like any other refusal, so hitting a limit is visible in
+            # the audit trail and in the activity feed.
+            session.add(
+                CommandExecutionRecord(
+                    actor=principal.actor,
+                    role=principal.role.value,
+                    raw_command=payload.command,
+                    parsed_action=plan.action,
+                    arguments=plan.arguments,
+                    status=JobStatus.FAILED.value,
+                    error_message=str(exc.detail),
+                    completed_at=datetime.now(timezone.utc),
+                )
+            )
+            session.commit()
+            raise
 
         execution = CommandExecutionRecord(
             actor=principal.actor,
@@ -790,7 +948,15 @@ def create_app(database_url: str | None = None) -> FastAPI:
         )
 
     @app.get("/cases", response_model=list[MonitoringCaseView])
-    def list_cases(session: SessionDep, status: str | None = None):
+    def list_cases(
+        session: SessionDep, principal: PrincipalDep, status: str | None = None
+    ):
+        """Cases are operational workflow: who is investigating what.
+
+        That is not part of the public picture, and nothing in the anonymous
+        experience reads it.
+        """
+        require_role(principal, OperatorRole.ANALYST)
         return OntologyService(session).list_cases(status)
 
     @app.post(
@@ -897,6 +1063,147 @@ def create_app(database_url: str | None = None) -> FastAPI:
             media_type="text/event-stream",
             headers={"Cache-Control": "no-store", "X-Accel-Buffering": "no"},
         )
+
+    # ---------------------------------------------------------------- billing
+    @app.get("/billing/me")
+    def billing_me(session: SessionDep, principal: PrincipalDep) -> dict[str, object]:
+        """The caller's plan, limits and usage, for the console's meter."""
+        tier = plan_for(session, principal)
+        limits = limits_for(tier)
+        usage = usage_for(session, principal)
+        entitlement = active_entitlement(session, principal)
+        return {
+            "plan": tier.value,
+            "plan_label": tier.label,
+            "limits": {
+                "screening_runs_per_month": limits.screening_runs_per_month,
+                "monitored_objects": limits.monitored_objects,
+                "max_window_hours": limits.max_window_hours,
+                "commands_per_minute": limits.commands_per_minute,
+            },
+            "usage": {
+                "screening_runs_this_month": usage.screening_runs_this_month,
+                "monitored_objects": usage.monitored_objects,
+            },
+            # Always zone-qualified: a bare local timestamp would be ambiguous
+            # to a browser in another zone.
+            "expires_at": (
+                moment.isoformat()
+                if entitlement and (moment := as_utc(entitlement.expires_at))
+                else None
+            ),
+        }
+
+    @app.get("/billing/plans")
+    def billing_plans(session: SessionDep, principal: PrincipalDep) -> dict[str, object]:
+        """The offers a visitor can buy, and whether founding seats remain."""
+        taken = count_lifetime_grants(session)
+        remaining = max(0, FOUNDING_SEATS - taken)
+        offers: list[dict[str, object]] = [
+            {
+                "code": SUBSCRIPTION.code,
+                "label": SUBSCRIPTION.label,
+                "price_usd": SUBSCRIPTION.price_usd,
+                "interval": "month",
+                "blurb": SUBSCRIPTION.blurb,
+                "available": True,
+            }
+        ]
+        if remaining > 0:
+            offers.append(
+                {
+                    "code": FOUNDING_LIFETIME.code,
+                    "label": FOUNDING_LIFETIME.label,
+                    "price_usd": FOUNDING_LIFETIME.price_usd,
+                    "interval": "lifetime",
+                    "blurb": FOUNDING_LIFETIME.blurb,
+                    "available": True,
+                    "seats_remaining": remaining,
+                }
+            )
+        current = plan_for(session, principal)
+        return {"current_plan": current.value, "offers": offers}
+
+    @app.post("/billing/webhook")
+    async def billing_webhook(request: Request, session: SessionDep) -> dict[str, str]:
+        """Entitlement grants and revocations from the payment provider.
+
+        Unauthenticated by necessity — the provider has no session — so the
+        signature is the only thing that makes this endpoint trustworthy. It is
+        rejected outright when no secret is configured, rather than degrading
+        to accepting anything.
+        """
+        secret = os.getenv("SDEBRIS_BILLING_WEBHOOK_SECRET", "").strip()
+        if not secret:
+            raise HTTPException(status_code=503, detail="billing webhook is not configured")
+
+        body = await request.body()
+        try:
+            event_id = verify_signature(
+                secret=secret, headers=dict(request.headers), body=body
+            )
+        except WebhookError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+        try:
+            payload = json.loads(body)
+        except json.JSONDecodeError as exc:
+            raise HTTPException(status_code=400, detail="delivery body is not JSON") from exc
+        if not isinstance(payload, dict):
+            raise HTTPException(status_code=400, detail="delivery body is not an object")
+
+        event = parse_event(event_id, payload)
+
+        # The provider retries until it gets a 2xx, so a replay must be a no-op
+        # rather than a second grant.
+        already = session.scalar(
+            select(BillingEventRecord).where(
+                BillingEventRecord.provider == BILLING_PROVIDER,
+                BillingEventRecord.event_id == event.event_id,
+            )
+        )
+        if already is not None:
+            return {"status": "duplicate", "outcome": already.outcome}
+
+        outcome = "ignored"
+        if event.event_type in GRANTING_EVENTS and event.email:
+            expires_at = grant_expiry(
+                event,
+                lifetime_product_id=os.getenv("SDEBRIS_BILLING_LIFETIME_PRODUCT_ID"),
+            )
+            grant_entitlement(
+                session,
+                email=event.email,
+                plan=Plan.PRO,
+                source=BILLING_PROVIDER,
+                external_ref=event.external_ref,
+                expires_at=expires_at,
+                metadata={
+                    "event_type": event.event_type,
+                    "product_id": event.product_id,
+                    "lifetime": expires_at is None,
+                },
+            )
+            outcome = "granted-lifetime" if expires_at is None else "granted"
+        elif event.event_type in REVOKING_EVENTS and event.external_ref:
+            revoked = revoke_entitlement(
+                session,
+                external_ref=event.external_ref,
+                status=REVOKING_EVENTS[event.event_type],
+            )
+            outcome = "revoked" if revoked else "revoke-no-match"
+
+        session.add(
+            BillingEventRecord(
+                provider=BILLING_PROVIDER,
+                event_id=event.event_id,
+                event_type=event.event_type or "unknown",
+                payload=payload,
+                outcome=outcome,
+            )
+        )
+        session.commit()
+        return {"status": "ok", "outcome": outcome}
 
     # -------------------------------------------------------------- governance
     @app.get("/audit-actions", response_model=list[AuditActionView])
