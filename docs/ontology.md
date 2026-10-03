@@ -1,7 +1,7 @@
 # Operational ontology
 
 The ontology service turns screening output into connected, versioned operational
-objects. It is intentionally separate from the Streamlit analyst interface.
+objects. It is intentionally separate from the screening pipeline that feeds it.
 
 ## Object model
 

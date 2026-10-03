@@ -44,7 +44,7 @@ data/cache/
 data/reports/*.csv
 data/reports/*.json
 
-# Environment-specific Streamlit agent skill links
+# Environment-specific agent skill links
 .agents/
 .claude/
 web/AGENTS.md

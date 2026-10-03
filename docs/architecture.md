@@ -20,11 +20,11 @@
                                           │  ScreeningResult (events + metadata)
                           ┌───────────────┼────────────────┐
                           ▼               ▼                ▼
-                 reports/writer.py   viz/orbits.py    alerts/notify.py
-                 (CSV + JSON)        (Plotly figs)    (email / webhook)
+                 reports/writer.py   api/app.py       alerts/notify.py
+                 (CSV + JSON)        (FastAPI)        (email / webhook)
                           │               │                │
                           ▼               ▼                ▼
-                      CLI (cli.py)   Streamlit app    Scheduled CI
+                      CLI (cli.py)   Next.js console  Scheduled CI
 ```
 
 ## Modules
@@ -38,7 +38,6 @@
 | `screening`        | Target-centric screening, TCA refinement, RAC frames        |
 | `risk`             | Collision probability + tiered classification               |
 | `reports`          | Canonical CSV + JSON metadata with validation               |
-| `viz`              | Plotly 3D orbit, ground-track, and analytics figures        |
 | `alerts`           | Email/webhook dispatch with per-pair cooldown               |
 | `cli`              | `sdebris` command (Click + Rich)                            |
 

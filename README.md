@@ -11,7 +11,7 @@ live TLEs from CelesTrak, propagates orbits with SGP4, screens an entire catalog
 against a target object, refines each close approach to its time of closest
 approach (TCA), decomposes the geometry into radial/along-track/cross-track
 components, estimates collision probability, and produces structured reports —
-all exposed through a CLI, a Streamlit web app, and a scheduled CI pipeline.
+all exposed through a CLI, a Next.js operator console, and a scheduled CI pipeline.
 
 > ⚠️ **Educational / portfolio tool.** TLE-derived collision probability is
 > *illustrative, not operational* — see [methodology](docs/methodology.md).
@@ -24,17 +24,16 @@ all exposed through a CLI, a Streamlit web app, and a scheduled CI pipeline.
 |-------|------------|
 | **1 — Foundation** | Live CelesTrak ingestion · SQLite cache with epoch & staleness tracking · vectorised SGP4 propagation · installable `src/` package · pytest suite |
 | **2 — Screening** | Target-centric miss distance · TCA via range-rate bisection · RAC decomposition · Foster/Chan **Pc** · TLE-age-weighted uncertainty · tiered risk · canonical CSV + JSON reports · `sdebris` CLI |
-| **3 — Interface** | Streamlit app · 3D ECI orbit view · ground tracks · analytics charts · sortable/filterable event table |
+| **3 — Interface** | Next.js operator console · Cesium 3D orbital picture · live activity stream · typed command surface · guided tour and docs |
 | **4 — Automation** | GitHub Actions cron screening · email/webhook alerts with cooldown · MkDocs site · CI/CD |
 
 ## Quick start
 
 ```bash
-pip install -e ".[app,dev]"
+pip install -e ".[api,dev]"
 
 sdebris fetch  --group iridium-33-debris        # cache live TLEs
 sdebris screen --norad 25544 --threshold-km 25  # screen ISS
-streamlit run app/streamlit_app.py              # interactive UI
 
 sdebris ontology-init                           # initialize operational store
 sdebris screen --norad 25544 --persist-ontology # persist a governed run
@@ -126,14 +125,12 @@ src/sdebris/
   screening/         # screen.py, tca.py, frames.py
   risk/              # pc.py (Foster/Chan), classify.py
   reports/           # CSV + JSON writer
-  viz/               # Plotly orbit / ground-track figures
   alerts/            # email + webhook dispatch
   ontology/          # typed objects, versioned data, actions, audit + lineage
   api/               # FastAPI operational interface
   commands/          # allowlisted command grammar + role gates
   jobs/              # persisted asynchronous screening worker
   cli.py             # `sdebris` command
-app/streamlit_app.py # Phase 3 web interface
 web/                 # Next.js + Cesium operator command center
 migrations/          # Alembic ontology schema history
 configs/default.yaml # all tunable parameters
@@ -145,7 +142,7 @@ docs/                # MkDocs site
 ## Development
 
 ```bash
-pip install -e ".[app,dev,docs]"
+pip install -e ".[api,dev,docs]"
 pytest                       # run the test suite
 ruff check src tests         # lint
 mkdocs serve                 # preview docs

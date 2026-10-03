@@ -1,4 +1,4 @@
-"""RIC / RAC reference-frame utilities.
+"""Reference-frame utilities: RIC / RAC decomposition and TEME to geodetic.
 
 The RIC frame (Radial, In-track, Cross-track — also called RTN or RSW) is built
 from a primary object's position and velocity:
@@ -14,6 +14,7 @@ Decomposing the relative position of a secondary object into this frame gives th
 from __future__ import annotations
 
 import numpy as np
+import pandas as pd
 
 
 def ric_basis(r: np.ndarray, v: np.ndarray) -> np.ndarray:
@@ -43,3 +44,28 @@ def ric_components(
     dr = np.asarray(r_secondary, dtype=float) - np.asarray(r_primary, dtype=float)
     radial, along, cross = basis @ dr
     return float(radial), float(along), float(cross)
+
+
+def teme_to_geodetic(positions: np.ndarray, times: pd.DatetimeIndex) -> pd.DataFrame:
+    """Convert TEME ECI positions (km) to geodetic lat/lon/alt via astropy.
+
+    Returns a DataFrame with columns ``lat_deg``, ``lon_deg``, ``alt_km``.
+    """
+    import astropy.units as u
+    from astropy.coordinates import ITRS, TEME, CartesianRepresentation
+    from astropy.time import Time
+
+    t = Time(times.to_pydatetime())
+    cart = CartesianRepresentation(
+        positions[:, 0] * u.km, positions[:, 1] * u.km, positions[:, 2] * u.km
+    )
+    teme = TEME(cart, obstime=t)
+    itrs = teme.transform_to(ITRS(obstime=t))
+    loc = itrs.earth_location.geodetic
+    return pd.DataFrame(
+        {
+            "lat_deg": np.asarray(loc.lat.deg, dtype=float),
+            "lon_deg": np.asarray(loc.lon.deg, dtype=float),
+            "alt_km": np.asarray(loc.height.to(u.km).value, dtype=float),
+        }
+    )

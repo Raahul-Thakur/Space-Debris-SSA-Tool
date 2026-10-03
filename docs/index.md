@@ -3,8 +3,8 @@
 A conjunction-screening engine for space situational awareness (SSA). It ingests
 live two-line element sets (TLEs), propagates orbits with SGP4, finds close
 approaches to a chosen target object, estimates collision probability, classifies
-risk, and produces structured reports — exposed through a CLI, a Streamlit web
-app, and a scheduled GitHub Actions pipeline.
+risk, and produces structured reports — exposed through a CLI, a Next.js
+operator console, and a scheduled GitHub Actions pipeline.
 
 ## What it does
 
@@ -23,10 +23,9 @@ app, and a scheduled GitHub Actions pipeline.
 ## Quick start
 
 ```bash
-pip install -e ".[app,dev]"
+pip install -e ".[api,dev]"
 sdebris fetch --group iridium-33-debris
 sdebris screen --norad 25544 --window-hours 72 --threshold-km 25
-streamlit run app/streamlit_app.py
 ```
 
 !!! warning "Scope & limitations"

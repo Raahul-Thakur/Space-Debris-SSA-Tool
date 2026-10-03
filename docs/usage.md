@@ -41,15 +41,21 @@ sdebris screen --norad 25544 --no-fetch --alert
 | `--alert`         | Send email / webhook alerts for critical events  |
 | `--config`        | Path to a YAML config overriding the defaults    |
 
-## Web app
+## Operator console
+
+The web interface is the Next.js app in `web/`, backed by the FastAPI service.
+Run both:
 
 ```bash
-streamlit run app/streamlit_app.py
+sdebris-api                       # FastAPI on 127.0.0.1:8000
+cd web && npm install && npm run dev   # console on localhost:3000
 ```
 
-Pick a target NORAD id, a catalog group, window, and threshold; the app shows
-risk-tier cards, a sortable event table, a 3D orbit view, ground tracks, and
-analytics charts.
+Everything is driven from one typed command surface, parsed against an
+allowlist. The console shows the orbital picture in 3D, a live activity stream,
+telemetry for the selected object, and streaming progress for screening jobs.
+Open `/docs` in the app for the full command reference, or press the TOUR
+button for a guided walkthrough.
 
 ## Configuration
 

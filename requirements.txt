@@ -1,5 +1,5 @@
 # Core runtime dependencies (see pyproject.toml for the canonical list).
-# Install the package instead with:  pip install -e ".[app,dev,docs]"
+# Install the package instead with:  pip install -e ".[api,dev,docs]"
 numpy>=1.24
 scipy>=1.10
 pandas>=2.0
@@ -11,9 +11,7 @@ pydantic>=2.5
 pyyaml>=6.0
 click>=8.1
 rich>=13.0
-# Web app (Phase 3)
-streamlit>=1.30
-plotly>=5.18
+python-dotenv>=1.0
 # Ontology API (install with `pip install -e ".[api]"`)
 fastapi>=0.115,<1
 sqlalchemy>=2.0,<3
