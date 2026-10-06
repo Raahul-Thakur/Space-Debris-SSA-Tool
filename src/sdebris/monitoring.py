@@ -99,9 +99,13 @@ def seed_well_known_objects(
                 parser_version="sdebris-tle-v1",
             ),
         )
+        # Scoped to the caller: looking the row up by object alone meant
+        # seeding took over whichever principal -- or the platform -- happened
+        # to be tracking it already, instead of adding the caller's own entry.
         monitor = session.scalar(
             select(MonitoredObjectRecord).where(
-                MonitoredObjectRecord.space_object_id == ontology_object.id
+                MonitoredObjectRecord.space_object_id == ontology_object.id,
+                MonitoredObjectRecord.added_by == actor,
             )
         )
         if monitor is None:

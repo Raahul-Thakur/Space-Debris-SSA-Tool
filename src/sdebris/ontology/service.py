@@ -48,6 +48,7 @@ from sdebris.ontology.schemas import (
     SpaceObjectCreate,
     SpaceObjectUpdate,
 )
+from sdebris.tenancy import Principal, scope
 
 RecordT = TypeVar("RecordT")
 
@@ -84,9 +85,22 @@ def record_state(record: Any) -> dict[str, Any]:
 
 
 class OntologyService:
-    def __init__(self, session: Session, *, auto_commit: bool = True) -> None:
+    def __init__(
+        self,
+        session: Session,
+        *,
+        auto_commit: bool = True,
+        actor: str | None = None,
+    ) -> None:
+        """``actor`` is the principal whose work the created rows belong to.
+
+        Leaving it None marks everything written through this service as
+        platform-owned, which is what the CLI and the scheduled pipeline want:
+        their output is the public picture rather than anyone's private work.
+        """
         self.session = session
         self.auto_commit = auto_commit
+        self.actor = actor
 
     def _get(self, model: type[RecordT], record_id: str, label: str) -> RecordT:
         record = self.session.get(model, record_id)
@@ -211,7 +225,7 @@ class OntologyService:
                 f"TLE belongs to NORAD {tle_norad}, not requested NORAD {norad_id}"
             )
         digest = hashlib.sha256(
-            f"{payload.line1}\n{payload.line2}".encode("utf-8")
+            f"{payload.line1}\n{payload.line2}".encode()
         ).hexdigest()
         existing = self.session.scalar(
             select(ElementSetRecord).where(
@@ -259,6 +273,7 @@ class OntologyService:
     # ----------------------------------------------------------- screening/run
     def create_screening_run(self, payload: ScreeningRunCreate) -> ScreeningRunRecord:
         record = ScreeningRunRecord(
+            actor=self.actor,
             propagator=payload.propagator,
             propagator_version=payload.propagator_version,
             configuration=payload.configuration,
@@ -365,6 +380,7 @@ class OntologyService:
     ) -> MonitoringCaseRecord:
         event = self._get(ConjunctionEventRecord, event_id, "Conjunction event")
         record = MonitoringCaseRecord(
+            actor=self.actor,
             event_id=event_id,
             title=payload.title,
             priority=payload.priority.value,
@@ -391,10 +407,17 @@ class OntologyService:
         self._commit()
         return record
 
-    def list_cases(self, status: str | None = None) -> list[MonitoringCaseRecord]:
-        statement = select(MonitoringCaseRecord).order_by(
-            MonitoringCaseRecord.priority, MonitoringCaseRecord.created_at
-        )
+    def list_cases(
+        self, status: str | None = None, *, principal: Principal | None = None
+    ) -> list[MonitoringCaseRecord]:
+        """Cases the principal may see.
+
+        Passing no principal returns every case, which is what the CLI and the
+        scheduled pipeline need. API callers always pass one.
+        """
+        statement = scope(
+            select(MonitoringCaseRecord), MonitoringCaseRecord.actor, principal
+        ).order_by(MonitoringCaseRecord.priority, MonitoringCaseRecord.created_at)
         if status:
             statement = statement.where(MonitoringCaseRecord.status == status)
         return list(self.session.scalars(statement))
@@ -444,6 +467,7 @@ class OntologyService:
     def create_alert(self, payload: AlertCreate) -> AlertRecord:
         self._get(ConjunctionEventRecord, payload.event_id, "Conjunction event")
         record = AlertRecord(
+            actor=self.actor,
             event_id=payload.event_id,
             rule=payload.rule,
             channel=payload.channel,
@@ -512,6 +536,7 @@ class OntologyService:
         self._get(ConjunctionEventRecord, event_id, "Conjunction event")
         space_object = self.get_space_object_by_norad(payload.space_object_norad_id)
         record = ManeuverScenarioRecord(
+            actor=self.actor,
             event_id=event_id,
             space_object_id=space_object.id,
             proposed_at=payload.proposed_at,

@@ -88,6 +88,12 @@ class ScreeningRunRecord(Base):
     __tablename__ = "screening_runs"
 
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=new_id)
+    #: Principal whose action produced this row, matching the convention in
+    #: screening_jobs and audit_actions. NULL means the platform produced it
+    #: -- a scheduled screening or a CLI run -- and those rows are visible to
+    #: everyone. Deliberately not called "owner": space_objects.owner already
+    #: means the organisation operating the satellite.
+    actor: Mapped[str | None] = mapped_column(String(255), nullable=True, index=True)
     status: Mapped[str] = mapped_column(String(32), default="running", nullable=False)
     started_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=utcnow, nullable=False
@@ -202,6 +208,12 @@ class MonitoringCaseRecord(TimestampMixin, Base):
     event_id: Mapped[str] = mapped_column(
         ForeignKey("conjunction_events.id"), nullable=False, index=True
     )
+    #: Principal whose action produced this row, matching the convention in
+    #: screening_jobs and audit_actions. NULL means the platform produced it
+    #: -- a scheduled screening or a CLI run -- and those rows are visible to
+    #: everyone. Deliberately not called "owner": space_objects.owner already
+    #: means the organisation operating the satellite.
+    actor: Mapped[str | None] = mapped_column(String(255), nullable=True, index=True)
     title: Mapped[str] = mapped_column(String(255), nullable=False)
     status: Mapped[str] = mapped_column(String(32), default="open", nullable=False)
     priority: Mapped[str] = mapped_column(String(8), default="P2", nullable=False)
@@ -240,6 +252,12 @@ class ManeuverScenarioRecord(TimestampMixin, Base):
     space_object_id: Mapped[str] = mapped_column(
         ForeignKey("space_objects.id"), nullable=False
     )
+    #: Principal whose action produced this row, matching the convention in
+    #: screening_jobs and audit_actions. NULL means the platform produced it
+    #: -- a scheduled screening or a CLI run -- and those rows are visible to
+    #: everyone. Deliberately not called "owner": space_objects.owner already
+    #: means the organisation operating the satellite.
+    actor: Mapped[str | None] = mapped_column(String(255), nullable=True, index=True)
     proposed_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
     delta_v_r_m_s: Mapped[float] = mapped_column(Float, nullable=False)
     delta_v_i_m_s: Mapped[float] = mapped_column(Float, nullable=False)
@@ -258,6 +276,12 @@ class AlertRecord(Base):
     event_id: Mapped[str] = mapped_column(
         ForeignKey("conjunction_events.id"), nullable=False, index=True
     )
+    #: Principal whose action produced this row, matching the convention in
+    #: screening_jobs and audit_actions. NULL means the platform produced it
+    #: -- a scheduled screening or a CLI run -- and those rows are visible to
+    #: everyone. Deliberately not called "owner": space_objects.owner already
+    #: means the organisation operating the satellite.
+    actor: Mapped[str | None] = mapped_column(String(255), nullable=True, index=True)
     rule: Mapped[str] = mapped_column(String(255), nullable=False)
     channel: Mapped[str] = mapped_column(String(64), nullable=False)
     delivery_status: Mapped[str] = mapped_column(
@@ -340,16 +364,40 @@ class MonitoredObjectRecord(Base):
     __tablename__ = "monitored_objects"
 
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=new_id)
+    #: Uniqueness is per watcher, not global. A single shared watch list was
+    #: the original assumption; with per-principal lists two people must be
+    #: able to track the same object independently. See the table-level
+    #: constraint below.
     space_object_id: Mapped[str] = mapped_column(
-        ForeignKey("space_objects.id"), unique=True, nullable=False, index=True
+        ForeignKey("space_objects.id"), nullable=False, index=True
     )
-    added_by: Mapped[str] = mapped_column(String(255), nullable=False)
+    #: Same convention as `actor` elsewhere: NULL is the platform's own
+    #: watch list, which is what the public globe renders.
+    added_by: Mapped[str | None] = mapped_column(
+        String(255), nullable=True, index=True
+    )
     active: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=utcnow, nullable=False
     )
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=utcnow, onupdate=utcnow, nullable=False
+    )
+
+    __table_args__ = (
+        # A unique *index* rather than a constraint, matching how the previous
+        # single-watcher rule was expressed, so `create_all` and the migration
+        # produce the same schema.
+        #
+        # Postgres treats NULLs as distinct, so this does not by itself stop
+        # two platform rows for one object; the watch-list upsert is what
+        # prevents that, by looking the row up per watcher before inserting.
+        Index(
+            "uq_monitored_object_watcher",
+            "space_object_id",
+            "added_by",
+            unique=True,
+        ),
     )
 
     space_object: Mapped[SpaceObjectRecord] = relationship()

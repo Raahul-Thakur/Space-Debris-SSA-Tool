@@ -95,7 +95,8 @@ class MonitoredObjectView(ORMModel):
     space_object_id: str
     norad_id: str
     name: str
-    added_by: str
+    #: None for the platform's own watch list, which is the public globe.
+    added_by: str | None = None
     active: bool
     created_at: datetime
     updated_at: datetime

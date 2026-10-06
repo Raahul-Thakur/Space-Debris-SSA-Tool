@@ -17,7 +17,6 @@ from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 
 from sdebris.ontology.enums import OperatorRole
 
-
 ROLE_RANK = {
     OperatorRole.VIEWER: 0,
     OperatorRole.ANALYST: 1,
@@ -124,6 +123,25 @@ def current_principal(
 
 
 PrincipalDep = Annotated[Principal, Depends(current_principal)]
+
+
+def optional_principal(
+    request: Request,
+    credentials: Annotated[HTTPAuthorizationCredentials | None, Depends(bearer)],
+) -> Principal | None:
+    """Identify the caller where one is presented, without requiring it.
+
+    For surfaces that are open to anonymous readers but show more to someone
+    signed in. A token that is present and invalid is still rejected: silently
+    treating a bad token as "anonymous" would turn an expired session into a
+    quietly reduced view rather than a prompt to sign in again.
+    """
+    if credentials is None or credentials.scheme.lower() != "bearer":
+        return None
+    return request.app.state.authenticator.verify(credentials.credentials)
+
+
+OptionalPrincipalDep = Annotated[Principal | None, Depends(optional_principal)]
 
 
 def require_role(principal: Principal, minimum: OperatorRole) -> None:

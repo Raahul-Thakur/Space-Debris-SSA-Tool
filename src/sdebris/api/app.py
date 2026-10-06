@@ -20,7 +20,13 @@ from sqlalchemy.orm import Session
 
 from sdebris import __version__
 from sdebris.activity import MAX_FEED_ITEMS, collect_activity, feed_cursor
-from sdebris.auth import Authenticator, Principal, PrincipalDep, require_role
+from sdebris.auth import (
+    Authenticator,
+    OptionalPrincipalDep,
+    Principal,
+    PrincipalDep,
+    require_role,
+)
 from sdebris.billing import (
     FOUNDING_LIFETIME,
     FOUNDING_SEATS,
@@ -113,6 +119,7 @@ from sdebris.ratelimit import (
     client_address,
 )
 from sdebris.runtime import configure_logging, request_log_middleware, validate_environment
+from sdebris.tenancy import owns, scope
 
 #: Billing provider whose webhooks this deployment accepts.
 BILLING_PROVIDER = "dodo"
@@ -286,9 +293,13 @@ def _execute_immediate_action(
             obj = session.scalar(
                 select(SpaceObjectRecord).where(SpaceObjectRecord.norad_id == norad_id)
             )
+        # Scoped to the caller, so adding an object the platform or another
+        # principal already tracks creates this principal's own entry rather
+        # than reassigning theirs.
         existing = session.scalar(
             select(MonitoredObjectRecord).where(
-                MonitoredObjectRecord.space_object_id == obj.id
+                MonitoredObjectRecord.space_object_id == obj.id,
+                MonitoredObjectRecord.added_by == actor,
             )
         )
         if existing:
@@ -308,7 +319,7 @@ def _execute_immediate_action(
     if action == "event.explain":
         return _event_explanation(str(arguments["event_id"]), session)
     if action == "case.assign":
-        case = OntologyService(session).apply_case_action(
+        case = OntologyService(session, actor=actor).apply_case_action(
             str(arguments["case_id"]),
             ActionType.ASSIGN_CASE,
             CaseActionRequest(
@@ -319,7 +330,7 @@ def _execute_immediate_action(
         )
         return {"case_id": case.id, "status": case.status, "assignee": case.assignee}
     if action == "case.close":
-        case = OntologyService(session).apply_case_action(
+        case = OntologyService(session, actor=actor).apply_case_action(
             str(arguments["case_id"]),
             ActionType.CLOSE_CASE,
             CaseActionRequest(
@@ -463,8 +474,18 @@ def create_app(database_url: str | None = None) -> FastAPI:
         }
 
     @app.post("/auth/development-token")
-    def development_token() -> dict[str, str]:
-        return {"access_token": authenticator.issue_development_token()}
+    def development_token(
+        subject: str = "local-operator", role: OperatorRole = OperatorRole.ADMIN
+    ) -> dict[str, str]:
+        """Mint a local token. Refuses outside development, in the issuer.
+
+        The parameters were previously ignored, so every development token was
+        the same admin principal and anything multi-user -- role gating, data
+        scoping -- could not be exercised without a real identity provider.
+        """
+        return {
+            "access_token": authenticator.issue_development_token(subject, role)
+        }
 
     @app.get("/ontology", response_model=OntologyDescription)
     def describe_ontology() -> OntologyDescription:
@@ -490,7 +511,10 @@ def create_app(database_url: str | None = None) -> FastAPI:
     # --------------------------------------------------------------- objects
     @app.post("/objects", response_model=SpaceObjectView, status_code=201)
     def create_object(payload: SpaceObjectCreate, session: SessionDep, principal: PrincipalDep):
-        require_role(principal, OperatorRole.ANALYST)
+        # Writes global data every reader shares, so it is curation
+        # rather than ordinary analyst work. The screening pipeline
+        # writes the same tables through the service layer, not here.
+        require_role(principal, OperatorRole.ADMIN)
         return OntologyService(session).create_space_object(payload)
 
     @app.get("/objects", response_model=list[SpaceObjectView])
@@ -509,7 +533,10 @@ def create_app(database_url: str | None = None) -> FastAPI:
     def update_object(
         norad_id: str, payload: SpaceObjectUpdate, session: SessionDep, principal: PrincipalDep
     ):
-        require_role(principal, OperatorRole.ANALYST)
+        # Writes global data every reader shares, so it is curation
+        # rather than ordinary analyst work. The screening pipeline
+        # writes the same tables through the service layer, not here.
+        require_role(principal, OperatorRole.ADMIN)
         return OntologyService(session).update_space_object(norad_id, payload)
 
     @app.post(
@@ -520,7 +547,10 @@ def create_app(database_url: str | None = None) -> FastAPI:
     def add_element_set(
         norad_id: str, payload: ElementSetCreate, session: SessionDep, principal: PrincipalDep
     ):
-        require_role(principal, OperatorRole.ANALYST)
+        # Writes global data every reader shares, so it is curation
+        # rather than ordinary analyst work. The screening pipeline
+        # writes the same tables through the service layer, not here.
+        require_role(principal, OperatorRole.ADMIN)
         return OntologyService(session).add_element_set(norad_id, payload)
 
     @app.get(
@@ -542,7 +572,10 @@ def create_app(database_url: str | None = None) -> FastAPI:
         norad_id: str, payload: SensorObservationCreate, session: SessionDep,
         principal: PrincipalDep,
     ):
-        require_role(principal, OperatorRole.ANALYST)
+        # Writes global data every reader shares, so it is curation
+        # rather than ordinary analyst work. The screening pipeline
+        # writes the same tables through the service layer, not here.
+        require_role(principal, OperatorRole.ADMIN)
         return OntologyService(session).add_observation(norad_id, payload)
 
     # --------------------------------------------------------------- analysis
@@ -551,13 +584,16 @@ def create_app(database_url: str | None = None) -> FastAPI:
         payload: ScreeningRunCreate, session: SessionDep, principal: PrincipalDep
     ):
         require_role(principal, OperatorRole.ANALYST)
-        return OntologyService(session).create_screening_run(payload)
+        return OntologyService(session, actor=principal.actor).create_screening_run(payload)
 
     @app.post("/events", response_model=ConjunctionEventView, status_code=201)
     def create_event(
         payload: ConjunctionEventCreate, session: SessionDep, principal: PrincipalDep
     ):
-        require_role(principal, OperatorRole.ANALYST)
+        # Writes global data every reader shares, so it is curation
+        # rather than ordinary analyst work. The screening pipeline
+        # writes the same tables through the service layer, not here.
+        require_role(principal, OperatorRole.ADMIN)
         return OntologyService(session).create_event(payload)
 
     @app.get("/events/assessed")
@@ -598,30 +634,50 @@ def create_app(database_url: str | None = None) -> FastAPI:
         payload = payload.model_copy(update={"actor": principal.actor})
         return jobs.create(payload)
 
+    def _job_or_404(
+        session: Session, job_id: str, principal: Principal, *, write: bool = False
+    ) -> ScreeningJobRecord:
+        """Fetch a job the principal is entitled to.
+
+        A missing job and someone else's job both return 404 rather than 403:
+        telling an unauthorised caller that an id exists is itself a
+        disclosure, and job ids are guessable in bulk.
+        """
+        job = session.get(ScreeningJobRecord, job_id)
+        if job is None or not owns(
+            job.actor, principal, platform_is_public=not write
+        ):
+            raise HTTPException(status_code=404, detail="screening job not found")
+        return job
+
     @app.get("/screening-jobs", response_model=list[ScreeningJobView])
     def list_screening_jobs(
         session: SessionDep,
         principal: PrincipalDep,
         limit: int = Query(default=25, ge=1, le=200),
     ):
+        # Previously unfiltered: every signed-in account saw everyone's jobs,
+        # and a job's command records which object was screened.
+        statement = scope(
+            select(ScreeningJobRecord), ScreeningJobRecord.actor, principal
+        )
         return list(
             session.scalars(
-                select(ScreeningJobRecord)
-                .order_by(ScreeningJobRecord.created_at.desc())
-                .limit(limit)
+                statement.order_by(ScreeningJobRecord.created_at.desc()).limit(limit)
             )
         )
 
     @app.get("/screening-jobs/{job_id}", response_model=ScreeningJobView)
     def get_screening_job(job_id: str, session: SessionDep, principal: PrincipalDep):
-        job = session.get(ScreeningJobRecord, job_id)
-        if job is None:
-            raise HTTPException(status_code=404, detail="screening job not found")
-        return job
+        return _job_or_404(session, job_id, principal)
 
     @app.post("/screening-jobs/{job_id}/cancel", response_model=ScreeningJobView)
-    def cancel_screening_job(job_id: str, principal: PrincipalDep):
+    def cancel_screening_job(
+        job_id: str, session: SessionDep, principal: PrincipalDep
+    ):
         require_role(principal, OperatorRole.ANALYST)
+        # Checked before cancelling, not after: cancelling is the side effect.
+        _job_or_404(session, job_id, principal, write=True)
         job = jobs.cancel(job_id)
         if job is None:
             raise HTTPException(status_code=404, detail="screening job not found")
@@ -632,8 +688,7 @@ def create_app(database_url: str | None = None) -> FastAPI:
         job_id: str, request: Request, principal: PrincipalDep
     ):
         with database.session_factory() as session:
-            if session.get(ScreeningJobRecord, job_id) is None:
-                raise HTTPException(status_code=404, detail="screening job not found")
+            _job_or_404(session, job_id, principal)
 
         async def event_stream():
             last_sequence = 0
@@ -841,12 +896,18 @@ def create_app(database_url: str | None = None) -> FastAPI:
         )
 
     @app.get("/monitoring", response_model=list[MonitoredObjectView])
-    def list_monitoring(session: SessionDep):
-        rows = session.execute(
+    def list_monitoring(session: SessionDep, principal: OptionalPrincipalDep):
+        # The platform's own watch list is the public globe; a signed-in
+        # caller additionally sees the objects they added.
+        statement = scope(
             select(MonitoredObjectRecord, SpaceObjectRecord)
             .join(SpaceObjectRecord)
-            .where(MonitoredObjectRecord.active.is_(True))
-            .order_by(MonitoredObjectRecord.created_at)
+            .where(MonitoredObjectRecord.active.is_(True)),
+            MonitoredObjectRecord.added_by,
+            principal,
+        )
+        rows = session.execute(
+            statement.order_by(MonitoredObjectRecord.created_at)
         ).all()
         return [
             {
@@ -910,7 +971,10 @@ def create_app(database_url: str | None = None) -> FastAPI:
         event_id: str, payload: RiskAssessmentCreate, session: SessionDep,
         principal: PrincipalDep,
     ):
-        require_role(principal, OperatorRole.ANALYST)
+        # Writes global data every reader shares, so it is curation
+        # rather than ordinary analyst work. The screening pipeline
+        # writes the same tables through the service layer, not here.
+        require_role(principal, OperatorRole.ADMIN)
         return OntologyService(session).add_assessment(event_id, payload)
 
     @app.post(
@@ -924,7 +988,7 @@ def create_app(database_url: str | None = None) -> FastAPI:
     ):
         require_role(principal, OperatorRole.OPERATOR)
         payload = payload.model_copy(update={"actor": principal.actor})
-        return OntologyService(session).create_maneuver(event_id, payload)
+        return OntologyService(session, actor=principal.actor).create_maneuver(event_id, payload)
 
     # -------------------------------------------------------------- operations
     @app.post(
@@ -940,7 +1004,7 @@ def create_app(database_url: str | None = None) -> FastAPI:
         case_payload = payload.model_dump(exclude={"actor", "justification"})
         from sdebris.ontology.schemas import MonitoringCaseCreate
 
-        return OntologyService(session).open_case(
+        return OntologyService(session, actor=principal.actor).open_case(
             event_id,
             MonitoringCaseCreate.model_validate(case_payload),
             actor=principal.actor,
@@ -957,7 +1021,7 @@ def create_app(database_url: str | None = None) -> FastAPI:
         experience reads it.
         """
         require_role(principal, OperatorRole.ANALYST)
-        return OntologyService(session).list_cases(status)
+        return OntologyService(session).list_cases(status, principal=principal)
 
     @app.post(
         "/cases/{case_id}/actions/{action}",
@@ -992,7 +1056,7 @@ def create_app(database_url: str | None = None) -> FastAPI:
         payload: AlertCreate, session: SessionDep, principal: PrincipalDep
     ):
         require_role(principal, OperatorRole.OPERATOR)
-        return OntologyService(session).create_alert(payload)
+        return OntologyService(session, actor=principal.actor).create_alert(payload)
 
     @app.post("/alerts/{alert_id}/acknowledge", response_model=AlertView)
     def acknowledge_alert(
