@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { FormEvent, useState } from "react";
 import { signInWithEmail } from "@/lib/auth";
 
@@ -32,8 +33,9 @@ export default function SignIn() {
           orbital picture.
         </h1>
         <p className="signin-copy">
-          A secure link will be sent to your email. New accounts receive read-only
-          access.
+          A secure link will be sent to your email. An account lets you screen
+          objects of your own and keep a watch list; the orbital picture itself
+          is public.
         </p>
         <form onSubmit={submit}>
           <label htmlFor="email">EMAIL ADDRESS</label>
@@ -50,6 +52,9 @@ export default function SignIn() {
           </button>
         </form>
         {status && <p className="signin-status">{status}</p>}
+        <p className="signin-back">
+          <Link href="/">← Back to the public picture</Link>
+        </p>
         <p className="science-notice">
           Educational screening platform. Outputs are illustrative and must not be used
           for operational maneuver decisions.

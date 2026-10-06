@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { useMemo, useState } from "react";
 import type { ActivityItem } from "@/lib/types";
 import type { FeedStatus } from "@/lib/useActivityFeed";
@@ -66,7 +67,11 @@ export default function ActivityFeed({
       <header>
         <span className={`feed-status ${status}`}>
           <i />
-          {status === "live" ? "LIVE" : status.toUpperCase()}
+          {status === "live"
+            ? "LIVE"
+            : status === "idle"
+              ? "SIGNED OUT"
+              : status.toUpperCase()}
         </span>
         <span className="feed-title">ACTIVITY</span>
         {criticalCount > 0 && <span className="feed-critical">{criticalCount} CRIT</span>}
@@ -112,9 +117,16 @@ export default function ActivityFeed({
               ))
             ) : (
               <li className="feed-idle">
-                {status === "offline"
-                  ? "Stream unavailable. Retrying in the background."
-                  : "Listening. Run a command to generate activity."}
+                {status === "idle" ? (
+                  <>
+                    The live feed follows your own activity.{" "}
+                    <Link href="/signin">Sign in</Link> to open the stream.
+                  </>
+                ) : status === "offline" ? (
+                  "Stream unavailable. Retrying in the background."
+                ) : (
+                  "Listening. Run a command to generate activity."
+                )}
               </li>
             )}
           </ol>

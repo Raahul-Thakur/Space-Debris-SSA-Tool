@@ -12,10 +12,11 @@ from fastapi.testclient import TestClient
 
 from sdebris.api.app import create_app
 from sdebris.ratelimit import (
-    ANONYMOUS_PROPAGATIONS_PER_MINUTE,
+    ANONYMOUS_PROPAGATION_UNITS_PER_MINUTE,
     ANONYMOUS_REQUESTS_PER_MINUTE,
     SlidingWindowLimiter,
     client_address,
+    propagation_cost,
 )
 
 #: Readable without a token: the public orbital picture.
@@ -85,20 +86,54 @@ def test_anonymous_reads_are_capped_per_address(client: TestClient) -> None:
     assert codes.index(429) <= ANONYMOUS_REQUESTS_PER_MINUTE
 
 
-def test_propagation_has_its_own_tighter_budget(client: TestClient) -> None:
-    """Trajectory runs SGP4 over thousands of points; it cannot share the read budget."""
-    assert ANONYMOUS_PROPAGATIONS_PER_MINUTE < ANONYMOUS_REQUESTS_PER_MINUTE
+def test_propagation_is_budgeted_by_work_not_by_request_count() -> None:
+    """A three-hour track and a twenty-four-hour one are not the same request.
+
+    Counting calls would either throttle a normal page load -- the console
+    needs one per monitored object -- or leave the expensive case unbounded.
+    """
+    console_track = propagation_cost(window_hours=3, step_sec=180)
+    largest_allowed = propagation_cost(window_hours=24, step_sec=10)
+    assert console_track == 1
+    assert largest_allowed > console_track * 50
+    # A full twenty-object page load fits comfortably...
+    assert 20 * console_track < ANONYMOUS_PROPAGATION_UNITS_PER_MINUTE
+    # ...while the largest single request cannot be repeated freely.
+    assert largest_allowed * 3 > ANONYMOUS_PROPAGATION_UNITS_PER_MINUTE
+
+
+def test_a_full_page_of_tracks_is_not_throttled(client: TestClient) -> None:
+    """The budget must not silently truncate the globe it exists to protect."""
     codes = [
-        client.get("/objects/25544/trajectory").status_code
-        for _ in range(ANONYMOUS_PROPAGATIONS_PER_MINUTE + 3)
+        client.get("/objects/25544/trajectory?window_hours=3&step_sec=180").status_code
+        for _ in range(20)
     ]
-    assert codes.index(429) == ANONYMOUS_PROPAGATIONS_PER_MINUTE
+    assert 429 not in codes, "a normal page load was throttled"
+
+
+def test_an_oversized_propagation_is_refused(client: TestClient) -> None:
+    response = client.get("/objects/25544/trajectory?window_hours=24&step_sec=10")
+    # Either rejected for cost, or served because the object is absent; what
+    # must not happen is it being served cheaply.
+    assert response.status_code in (404, 429)
+
+
+def test_an_expensive_request_does_not_lock_out_the_window(client: TestClient) -> None:
+    """A refused request is not charged, so one oversized call cannot block the rest."""
+    for _ in range(3):
+        client.get("/objects/25544/trajectory?window_hours=24&step_sec=10")
+    assert (
+        client.get(
+            "/objects/25544/trajectory?window_hours=3&step_sec=180"
+        ).status_code
+        != 429
+    )
 
 
 def test_a_throttled_response_says_when_to_come_back(client: TestClient) -> None:
     last = None
-    for _ in range(ANONYMOUS_PROPAGATIONS_PER_MINUTE + 2):
-        last = client.get("/objects/25544/trajectory")
+    for _ in range(ANONYMOUS_REQUESTS_PER_MINUTE + 2):
+        last = client.get("/ontology")
     assert last is not None
     assert last.status_code == 429
     assert int(last.headers["Retry-After"]) >= 1

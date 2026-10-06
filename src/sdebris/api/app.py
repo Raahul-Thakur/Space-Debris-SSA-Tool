@@ -15,7 +15,7 @@ import uvicorn
 from fastapi import Depends, FastAPI, HTTPException, Query, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse, StreamingResponse
-from sqlalchemy import select, text
+from sqlalchemy import func, select, text
 from sqlalchemy.orm import Session
 
 from sdebris import __version__
@@ -73,6 +73,7 @@ from sdebris.ontology.orm import (
     RiskAssessmentRecord,
     ScreeningJobEventRecord,
     ScreeningJobRecord,
+    ScreeningRunRecord,
     SpaceObjectRecord,
 )
 from sdebris.ontology.schemas import (
@@ -113,10 +114,11 @@ from sdebris.ontology.schemas import (
 )
 from sdebris.propagation import make_time_grid, propagate_objects
 from sdebris.ratelimit import (
-    ANONYMOUS_PROPAGATIONS_PER_MINUTE,
+    ANONYMOUS_PROPAGATION_UNITS_PER_MINUTE,
     ANONYMOUS_REQUESTS_PER_MINUTE,
     SlidingWindowLimiter,
     client_address,
+    propagation_cost,
 )
 from sdebris.runtime import configure_logging, request_log_middleware, validate_environment
 from sdebris.tenancy import owns, scope
@@ -162,6 +164,14 @@ def get_session(request: Request) -> Iterator[Session]:
 SessionDep = Annotated[Session, Depends(get_session)]
 
 
+def _float_param(raw: str | None, fallback: float) -> float:
+    """Read a query value for costing before the route has validated it."""
+    try:
+        return float(raw) if raw is not None else fallback
+    except (TypeError, ValueError):
+        return fallback
+
+
 def _assessed_events(session: Session, tier: str | None = None) -> dict[str, object]:
     """Conjunctions joined to their latest risk tier, ordered by TCA."""
     statement = (
@@ -176,7 +186,16 @@ def _assessed_events(session: Session, tier: str | None = None) -> dict[str, obj
     if tier:
         statement = statement.where(RiskAssessmentRecord.tier == tier)
     rows = session.execute(statement).all()
+    # When the picture was last refreshed. A visitor with no account judges
+    # whether this is worth coming back to by how current it is, so the age of
+    # the data is part of the data.
+    last_screened = session.scalar(
+        select(func.max(ScreeningRunRecord.completed_at)).where(
+            ScreeningRunRecord.completed_at.is_not(None)
+        )
+    )
     return {
+        "generated_at": last_screened.isoformat() if last_screened else None,
         "events": [
             {
                 "id": event.id,
@@ -387,13 +406,19 @@ def create_app(database_url: str | None = None) -> FastAPI:
             return await call_next(request)
         address = client_address(request)
         propagating = request.url.path.endswith("/trajectory")
-        key = f"anon:{'propagate' if propagating else 'read'}:{address}"
-        limit = (
-            ANONYMOUS_PROPAGATIONS_PER_MINUTE
-            if propagating
-            else ANONYMOUS_REQUESTS_PER_MINUTE
-        )
-        if not anonymous_limiter.check(key, limit):
+        if propagating:
+            key = f"anon:propagate:{address}"
+            limit = ANONYMOUS_PROPAGATION_UNITS_PER_MINUTE
+            params = request.query_params
+            cost = propagation_cost(
+                _float_param(params.get("window_hours"), 3.0),
+                _float_param(params.get("step_sec"), 120.0),
+            )
+        else:
+            key = f"anon:read:{address}"
+            limit = ANONYMOUS_REQUESTS_PER_MINUTE
+            cost = 1
+        if not anonymous_limiter.check(key, limit, cost=cost):
             retry_after = anonymous_limiter.retry_after(key)
             return JSONResponse(
                 status_code=429,

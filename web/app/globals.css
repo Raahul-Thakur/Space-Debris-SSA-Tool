@@ -263,6 +263,74 @@ button { color: inherit; }
 }
 .topbar-link:hover { background: var(--signal); color: var(--paper); }
 
+/* The age of the picture, which is what a visitor without an account uses to
+   judge whether this is worth returning to. */
+.freshness {
+  padding: 0 18px;
+  color: var(--plate-soft);
+  font: 500 10px var(--mono);
+  letter-spacing: .16em;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+
+/* Signing in is an offer, not a barrier, so it is the one topbar item that
+   carries the anchor colour. */
+.topbar-link.accent {
+  background: var(--signal);
+  color: var(--paper);
+}
+.topbar-link.accent:hover { background: var(--signal-deep); }
+
+/* What changed since this browser last looked. Sits over the globe because
+   that is where attention already is. */
+.unseen-banner {
+  position: absolute;
+  top: 18px;
+  right: 20px;
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  padding: 9px 14px;
+  border: 1px solid var(--signal);
+  background: var(--plate-sunk);
+  color: var(--plate-ink);
+  cursor: pointer;
+  font: 500 11px var(--mono);
+  letter-spacing: .04em;
+  text-align: left;
+}
+.unseen-banner:hover { background: var(--signal); color: var(--paper); }
+.unseen-banner strong {
+  font: 600 18px/1 var(--display);
+  color: var(--signal);
+}
+.unseen-banner:hover strong { color: var(--paper); }
+.unseen-banner em {
+  font: 500 9px var(--mono);
+  font-style: normal;
+  letter-spacing: .16em;
+  color: var(--plate-faint);
+  text-transform: uppercase;
+}
+.unseen-banner:hover em { color: var(--paper); }
+
+/* Guests get a link where an operator gets a command. */
+.empty a {
+  color: var(--signal);
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+.signin-back {
+  margin: 22px 0 0;
+  font: 500 10px var(--mono);
+  letter-spacing: .14em;
+  text-transform: uppercase;
+}
+.signin-back a { color: var(--ink-soft); text-decoration: none; }
+.signin-back a:hover { color: var(--signal); }
+
 /* ======================================================================= rail */
 .rail {
   grid-row: 2;

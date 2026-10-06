@@ -2,7 +2,7 @@
 
 import dynamic from "next/dynamic";
 import Link from "next/link";
-import { useSearchParams } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import {
   FormEvent,
   KeyboardEvent,
@@ -10,10 +10,18 @@ import {
   useEffect,
   useMemo,
   useRef,
-  useState
+  useState,
+  useSyncExternalStore
 } from "react";
 import { api, streamSse } from "@/lib/api";
 import { getSupabase, initializeAuth } from "@/lib/auth";
+import {
+  getSeenEventsServerSnapshot,
+  getSeenEventsSnapshot,
+  markEventsSeen,
+  parseSeenEvents,
+  subscribeToSeenEvents
+} from "@/lib/seenEvents";
 import { matchSamples } from "@/lib/samples";
 import type { SampleQuery } from "@/lib/samples";
 import type {
@@ -25,7 +33,6 @@ import type {
   Trajectory
 } from "@/lib/types";
 import { useActivityFeed } from "@/lib/useActivityFeed";
-import SignIn from "@/components/SignIn";
 import ActivityFeed from "@/components/ActivityFeed";
 import CommandPalette from "@/components/CommandPalette";
 import ProductTour from "@/components/ProductTour";
@@ -41,8 +48,11 @@ const REFRESHING_KINDS = new Set<ActivityItem["kind"]>([
 /** Collapse bursts of stream activity into one reload. */
 const REFRESH_DEBOUNCE_MS = 1_200;
 const DEFAULT_COMMAND = "screen 25544 --window 72h --threshold 25km";
+/** A command typed before signing in, restored afterwards. */
+const PENDING_COMMAND_KEY = "astra.pending-command";
 
 export default function CommandCenter() {
+  const router = useRouter();
   const searchParams = useSearchParams();
   // Deep links from the docs page: `?command=<text>` preloads the console and
   // `?tour=1` opens the guided tour. Captured once so they seed state rather
@@ -71,8 +81,25 @@ export default function CommandCenter() {
   // Incremented to ask ProductTour for a run; never reset.
   const [tourRequest, setTourRequest] = useState(deepLink.tour ? 1 : 0);
   const [now, setNow] = useState(() => Date.now());
+  const [generatedAt, setGeneratedAt] = useState<string | null>(null);
+
   const inputRef = useRef<HTMLInputElement>(null);
   const refreshTimer = useRef<ReturnType<typeof setTimeout>>(undefined);
+
+  /** Reinstate a command typed before the visitor was sent to sign in. */
+  const restorePendingCommand = useCallback(() => {
+    let pending: string | null = null;
+    try {
+      pending = window.sessionStorage.getItem(PENDING_COMMAND_KEY);
+      if (pending) window.sessionStorage.removeItem(PENDING_COMMAND_KEY);
+    } catch {
+      return;
+    }
+    if (!pending) return;
+    setCommand(pending);
+    setNotice("Signed in. Your command is ready — press Execute to run it.");
+    setPaletteOpen(true);
+  }, []);
 
   const refresh = useCallback(async () => {
     const [nextJobs, nextMonitored, listed] = await Promise.all([
@@ -80,7 +107,9 @@ export default function CommandCenter() {
       api<MonitoredObject[]>("/monitoring").catch(() => []),
       // A plain read, not `events list` through the command endpoint: polling
       // must not fill the audit log and the activity feed with its own traffic.
-      api<{ events: RiskEvent[] }>("/events/assessed").catch(() => ({ events: [] }))
+      api<{ events: RiskEvent[]; generated_at: string | null }>(
+        "/events/assessed"
+      ).catch(() => ({ events: [], generated_at: null }))
     ]);
     setJobs(nextJobs);
     setMonitored(nextMonitored);
@@ -90,6 +119,7 @@ export default function CommandCenter() {
         : nextMonitored[0]?.norad_id ?? null
     );
     setRiskEvents(listed.events ?? []);
+    setGeneratedAt(listed.generated_at ?? null);
     const ids = nextMonitored.length
       ? nextMonitored.map((object) => object.norad_id)
       : ["25544"];
@@ -137,12 +167,23 @@ export default function CommandCenter() {
         const signedIn = state.development || Boolean(state.session);
         setAuthenticated(signedIn);
         setAuthReady(true);
-        if (signedIn) await refresh();
+        if (signedIn) restorePendingCommand();
+        // Loaded either way. The catalogue, the orbital picture and the
+        // assessed conjunctions are public; an account is what lets someone
+        // act on them, so a visitor without one still gets the real thing.
+        await refresh();
       })
-      .catch((caught) => {
+      .catch(async (caught) => {
         if (!active) return;
-        setError(caught instanceof Error ? caught.message : "Authentication failed");
         setAuthReady(true);
+        // A failure to establish a session is not a failure to show the
+        // public picture, so it is reported without emptying the page.
+        setNotice(
+          caught instanceof Error
+            ? `Viewing as a guest: ${caught.message}`
+            : "Viewing as a guest."
+        );
+        await refresh();
       });
     const client = getSupabase();
     const subscription = client?.auth.onAuthStateChange((_event, session) => {
@@ -150,13 +191,45 @@ export default function CommandCenter() {
         setAccessToken(session?.access_token ?? null)
       );
       setAuthenticated(Boolean(session));
-      if (session) void refresh();
+      if (session) {
+        restorePendingCommand();
+        void refresh();
+      }
     }).data.subscription;
     return () => {
       active = false;
       subscription?.unsubscribe();
     };
-  }, [refresh]);
+  }, [refresh, restorePendingCommand]);
+
+  // Read through an external store: the server has no localStorage, so this
+  // needs a defined server snapshot rather than state seeded in an effect.
+  const seenRaw = useSyncExternalStore(
+    subscribeToSeenEvents,
+    getSeenEventsSnapshot,
+    getSeenEventsServerSnapshot
+  );
+  const seenEventIds = useMemo(() => parseSeenEvents(seenRaw), [seenRaw]);
+
+  const unseenEvents = useMemo(
+    () => riskEvents.filter((item) => !seenEventIds.has(item.id)).length,
+    [riskEvents, seenEventIds]
+  );
+
+  const dismissUnseen = useCallback(
+    () => markEventsSeen(riskEvents.map((item) => item.id)),
+    [riskEvents]
+  );
+
+  const freshness = useMemo(() => {
+    if (!generatedAt) return null;
+    const ageMs = now - new Date(generatedAt).getTime();
+    if (!Number.isFinite(ageMs) || ageMs < 0) return null;
+    const hours = ageMs / 3_600_000;
+    if (hours < 1) return `${Math.max(1, Math.round(ageMs / 60_000))}M AGO`;
+    if (hours < 48) return `${Math.round(hours)}H AGO`;
+    return `${Math.round(hours / 24)}D AGO`;
+  }, [generatedAt, now]);
 
   const activeJobId = activeJob?.id;
   useEffect(() => {
@@ -249,6 +322,19 @@ export default function CommandCenter() {
   async function execute(event: FormEvent) {
     event.preventDefault();
     if (!command.trim()) return;
+    if (!authenticated) {
+      // The prompt arrives where the visitor already wants something, with
+      // the command they typed preserved, rather than in front of the page.
+      setError("");
+      setNotice("Running commands needs an account. Your command is kept.");
+      try {
+        window.sessionStorage.setItem(PENDING_COMMAND_KEY, command);
+      } catch {
+        // Not worth blocking sign-in over.
+      }
+      router.push("/signin");
+      return;
+    }
     const closing = command.trim().startsWith("case close");
     const confirmed = closing
       ? window.confirm("Close this monitoring case? This action is recorded in the audit log.")
@@ -344,8 +430,7 @@ export default function CommandCenter() {
   );
   const utc = useMemo(() => new Date(now).toISOString().slice(11, 19), [now]);
 
-  if (!authReady) return <main className="auth-loading">VERIFYING ACCESS</main>;
-  if (!authenticated) return <SignIn />;
+  if (!authReady) return <main className="auth-loading">LOADING ORBITAL PICTURE</main>;
 
   return (
     <main className="shell">
@@ -363,10 +448,17 @@ export default function CommandCenter() {
         <div className="system-state">
           <i /> CATALOG LINKED <span>·</span> TEME / SGP4 <span>·</span>
           <em className={`stream-state ${feed.status}`}>
-            STREAM {feed.status.toUpperCase()}
+            {feed.status === "idle"
+              ? "PUBLIC VIEW"
+              : `STREAM ${feed.status.toUpperCase()}`}
           </em>
         </div>
         <div className="topbar-actions">
+          {freshness && (
+            <span className="freshness" title={`Last screening completed ${generatedAt}`}>
+              SCREENED {freshness}
+            </span>
+          )}
           <span className="utc-clock">{utc} UTC</span>
           <button
             type="button"
@@ -378,6 +470,11 @@ export default function CommandCenter() {
           <Link className="topbar-link" href="/docs" data-tour="docs-link">
             DOCS
           </Link>
+          {!authenticated && (
+            <Link className="topbar-link accent" href="/signin">
+              SIGN IN →
+            </Link>
+          )}
         </div>
       </header>
 
@@ -439,8 +536,18 @@ export default function CommandCenter() {
               ))
             ) : (
               <p className="empty">
-                No monitored elements. Run <code>monitor seed-known</code> to load a starter
-                set, or <code>monitor add 25544</code> for one object.
+                {authenticated ? (
+                  <>
+                    No monitored elements. Run <code>monitor seed-known</code> to load a
+                    starter set, or <code>monitor add 25544</code> for one object.
+                  </>
+                ) : (
+                  <>
+                    The public catalogue is empty right now.{" "}
+                    <Link href="/signin">Sign in</Link> to build a watch list of your
+                    own.
+                  </>
+                )}
               </p>
             )}
           </div>
@@ -479,6 +586,16 @@ export default function CommandCenter() {
           <p>ORBITAL PICTURE / +3H</p>
           <span>{trajectories.length} TRACKS / TEME FRAME</span>
         </div>
+        {unseenEvents > 0 && (
+          <button type="button" className="unseen-banner" onClick={dismissUnseen}>
+            <strong>{unseenEvents}</strong>
+            <span>
+              new {unseenEvents === 1 ? "conjunction" : "conjunctions"} since your
+              last visit
+            </span>
+            <em>MARK SEEN</em>
+          </button>
+        )}
         <div className="reticle" aria-hidden="true" />
         <div className="legend">
           <span>
@@ -608,7 +725,17 @@ export default function CommandCenter() {
           </div>
         ) : (
           <p className="empty">
-            No assessed conjunctions yet. Run <code>screen 25544</code> to produce some.
+            {authenticated ? (
+              <>
+                No assessed conjunctions yet. Run <code>screen 25544</code> to produce
+                some.
+              </>
+            ) : (
+              <>
+                No assessed conjunctions in the public picture yet.{" "}
+                <Link href="/signin">Sign in</Link> to screen an object yourself.
+              </>
+            )}
           </p>
         )}
 

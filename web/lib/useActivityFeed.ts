@@ -1,10 +1,20 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { api, streamSse } from "./api";
 import type { ActivityItem, ActivitySnapshot } from "./types";
 
-export type FeedStatus = "connecting" | "live" | "reconnecting" | "offline";
+/**
+ * `idle` is the feed never having been asked to connect, which is the state
+ * for a visitor without an account: the stream requires one. It is distinct
+ * from `offline`, which means it tried and could not.
+ */
+export type FeedStatus =
+  | "idle"
+  | "connecting"
+  | "live"
+  | "reconnecting"
+  | "offline";
 
 /** Newest-first cap on what the feed keeps in memory. */
 const MAX_ITEMS = 120;
@@ -117,5 +127,11 @@ export function useActivityFeed(enabled: boolean, onItems?: (items: ActivityItem
     };
   }, [enabled, ingest]);
 
-  return state;
+  // Derived, not stored: whether the feed was ever asked to connect is a
+  // property of the caller, so storing it would mean writing state in an
+  // effect to mirror a prop.
+  return useMemo(
+    () => (enabled ? state : { ...state, status: "idle" as const }),
+    [enabled, state]
+  );
 }

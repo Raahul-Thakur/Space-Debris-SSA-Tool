@@ -8,6 +8,7 @@ otherwise enforce the limit independently.
 
 from __future__ import annotations
 
+import math
 import threading
 import time
 from collections import defaultdict, deque
@@ -20,10 +21,29 @@ IDLE_EVICTION_SECONDS = 600.0
 #: enough that a visitor clicking around the globe never notices it.
 ANONYMOUS_REQUESTS_PER_MINUTE = 120
 
-#: Propagation is the expensive anonymous operation: a trajectory request runs
-#: SGP4 over a time grid of up to 8640 points. It gets its own, much tighter
-#: budget so that one address cannot saturate a small instance.
-ANONYMOUS_PROPAGATIONS_PER_MINUTE = 12
+#: Propagation is the expensive anonymous operation, and requests vary enormously
+#: in cost: the console asks for a three-hour track per monitored object, around
+#: ninety SGP4 evaluations, while the endpoint permits twenty-four hours at
+#: ten-second steps, which is 8640. Budgeting by request count would either
+#: throttle a normal page load -- the console needs one call per object before
+#: the globe is complete -- or leave the expensive case unbounded. So the budget
+#: is denominated in units of work.
+#: Sized from the console's actual shape: it asks for one track per monitored
+#: object, so a twenty-object catalogue is twenty units per paint. This allows
+#: several page loads a minute while still refusing the largest request the
+#: endpoint permits more than twice over.
+ANONYMOUS_PROPAGATION_UNITS_PER_MINUTE = 150
+#: Samples per unit. A default console track costs one; the largest request the
+#: endpoint allows costs more than the whole budget, and is refused outright.
+SAMPLES_PER_PROPAGATION_UNIT = 120
+
+
+def propagation_cost(window_hours: float, step_sec: float) -> int:
+    """Units of work a trajectory request represents."""
+    if step_sec <= 0:
+        return 1
+    samples = max(1.0, (window_hours * 3600.0) / step_sec)
+    return max(1, math.ceil(samples / SAMPLES_PER_PROPAGATION_UNIT))
 
 
 def client_address(request: object) -> str:
@@ -54,9 +74,17 @@ class SlidingWindowLimiter:
         self._hits: dict[str, deque[float]] = defaultdict(deque)
         self._lock = threading.Lock()
 
-    def check(self, key: str, limit: int, now: float | None = None) -> bool:
-        """Record a hit and report whether it is within the limit."""
-        if limit <= 0:
+    def check(
+        self, key: str, limit: int, now: float | None = None, cost: int = 1
+    ) -> bool:
+        """Record ``cost`` units against ``key`` and report whether they fit.
+
+        A cost above one lets a budget track work rather than calls, for
+        endpoints where one request can be far more expensive than another.
+        An over-budget request is rejected without being charged, so a single
+        oversized call cannot lock an address out for the whole window.
+        """
+        if limit <= 0 or cost <= 0:
             return False
         moment = now if now is not None else time.monotonic()
         with self._lock:
@@ -64,9 +92,9 @@ class SlidingWindowLimiter:
             hits = self._hits[key]
             while hits and moment - hits[0] >= self._window:
                 hits.popleft()
-            if len(hits) >= limit:
+            if len(hits) + cost > limit:
                 return False
-            hits.append(moment)
+            hits.extend([moment] * cost)
             return True
 
     def retry_after(self, key: str, now: float | None = None) -> int:
