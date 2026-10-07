@@ -75,6 +75,24 @@ class CommandRequest(BaseModel):
     confirmed: bool = False
 
 
+class ManeuverPreviewRequest(BaseModel):
+    """A proposed burn, in the primary's RIC frame, before closest approach.
+
+    Bounds are generous rather than tight: the point is to reject input that
+    is not a collision-avoidance manoeuvre at all, while leaving room to
+    explore what a burn does. The scenario evaluator applies the real limits.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    radial_m_s: float = Field(default=0.0, ge=-50.0, le=50.0)
+    along_track_m_s: float = Field(default=0.0, ge=-50.0, le=50.0)
+    cross_track_m_s: float = Field(default=0.0, ge=-50.0, le=50.0)
+    #: Hours before closest approach. Earlier is cheaper, which is the single
+    #: most useful thing this feature teaches.
+    lead_time_hours: float = Field(default=6.0, gt=0.0, le=72.0)
+
+
 class CommandPlan(BaseModel):
     action: str
     arguments: dict[str, Any]

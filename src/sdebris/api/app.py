@@ -53,6 +53,7 @@ from sdebris.commands.parser import COMMAND_HELP
 from sdebris.config import load_config, load_env
 from sdebris.ingest.celestrak import CelesTrakClient
 from sdebris.jobs import ScreeningJobManager
+from sdebris.maneuver import Burn, evaluate
 from sdebris.models import SpaceObject
 from sdebris.monitoring import seed_well_known_objects
 from sdebris.nl import narrate_event, suggest_from_rules
@@ -90,6 +91,7 @@ from sdebris.ontology.schemas import (
     ElementSetCreate,
     ElementSetView,
     LineageEdgeView,
+    ManeuverPreviewRequest,
     ManeuverScenarioCreate,
     ManeuverScenarioView,
     MonitoredObjectView,
@@ -1022,6 +1024,86 @@ def create_app(database_url: str | None = None) -> FastAPI:
         require_role(principal, OperatorRole.OPERATOR)
         payload = payload.model_copy(update={"actor": principal.actor})
         return OntologyService(session, actor=principal.actor).create_maneuver(event_id, payload)
+
+    @app.post("/events/{event_id}/maneuver-preview")
+    def preview_maneuver(
+        event_id: str,
+        payload: ManeuverPreviewRequest,
+        session: SessionDep,
+        principal: PrincipalDep,
+    ) -> dict[str, object]:
+        """What a proposed burn would do, under three different models.
+
+        Analysis rather than an operational action, so it is analyst-level and
+        persists nothing. Recording a manoeuvre scenario against the event is
+        a separate, operator-level decision.
+
+        Three models run because they disagree, and by how much is part of the
+        answer. SGP4 cannot be used past the burn -- there is no state vector
+        inside it to perturb -- so the post-burn arc necessarily comes from
+        different dynamics than the screening that found the encounter.
+        """
+        require_role(principal, OperatorRole.ANALYST)
+        event = session.get(ConjunctionEventRecord, event_id)
+        if event is None:
+            raise HTTPException(status_code=404, detail="event not found")
+
+        objects = []
+        for object_id in (event.primary_object_id, event.secondary_object_id):
+            record = session.get(SpaceObjectRecord, object_id)
+            element = session.scalar(
+                select(ElementSetRecord)
+                .where(ElementSetRecord.space_object_id == object_id)
+                .order_by(ElementSetRecord.epoch.desc())
+                .limit(1)
+            )
+            if record is None or element is None:
+                raise HTTPException(
+                    status_code=422,
+                    detail="both objects need an element set to model a burn",
+                )
+            objects.append(
+                SpaceObject(record.norad_id, record.name, element.line1, element.line2)
+            )
+
+        burn = Burn(
+            radial_m_s=payload.radial_m_s,
+            along_track_m_s=payload.along_track_m_s,
+            cross_track_m_s=payload.cross_track_m_s,
+            lead_time_hours=payload.lead_time_hours,
+        )
+        try:
+            result = evaluate(objects[0], objects[1], as_utc(event.tca), burn)
+        except ValueError as exc:
+            raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+        return {
+            "event_id": event_id,
+            "baseline_miss_distance_km": result.baseline_miss_distance_km,
+            "resulting_miss_distance_km": result.best_estimate_km,
+            "effect_km": result.best_effect_km,
+            "model_spread_km": result.spread_km,
+            "models_agree": result.models_agree,
+            "summary": result.summary(),
+            "models": [
+                {
+                    "model": outcome.model,
+                    "label": outcome.label,
+                    "miss_distance_km": outcome.miss_distance_km,
+                    "effect_km": outcome.effect_km,
+                    "drift_from_sgp4_km": outcome.drift_from_sgp4_km,
+                    "within_assumptions": outcome.within_assumptions,
+                    "assumptions": list(outcome.assumptions),
+                    "caveat": outcome.caveat,
+                }
+                for outcome in result.outcomes
+            ],
+            "not_for_operational_use": (
+                "Synthetic covariance, public element sets of unknown "
+                "freshness, and post-burn dynamics that differ from the "
+                "screening. This is a teaching tool."
+            ),
+        }
 
     # -------------------------------------------------------------- operations
     @app.post(
