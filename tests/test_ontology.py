@@ -1,9 +1,8 @@
 from datetime import datetime, timezone
 
-from sdebris.ontology import Database, OntologyService
 from sdebris.config import load_config
 from sdebris.models import SpaceObject
-from sdebris.ontology import persist_screening_result
+from sdebris.ontology import Database, OntologyService, persist_screening_result
 from sdebris.ontology.enums import ActionType
 from sdebris.ontology.schemas import (
     CaseActionRequest,

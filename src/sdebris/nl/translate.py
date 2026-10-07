@@ -41,15 +41,33 @@ class Suggestion:
         return self.command is not None
 
 
-def _window_hours(text: str) -> tuple[float, str] | None:
+def _window_hours(
+    text: str, ceiling: float = MAX_WINDOW_HOURS
+) -> tuple[float, str] | None:
+    """Parse a look-ahead from the phrase, never exceeding ``ceiling``.
+
+    The ceiling is the caller's plan limit, not only the grammar's. Proposing
+    a window the plan will refuse produces a command that reads as correct and
+    then fails with a payment prompt the moment it runs, which makes the
+    interpreter look broken rather than the plan look limited. Clamping here
+    and saying so keeps the proposal runnable.
+    """
     lowered = text.lower()
+    limit = min(ceiling, MAX_WINDOW_HOURS)
+
+    def capped(hours: float, label: str) -> tuple[float, str]:
+        fitted = min(hours, limit)
+        note = f"{label} → {fitted:g}h"
+        if fitted < hours:
+            note += f" (capped: your plan screens up to {limit:g}h)"
+        return fitted, note
 
     explicit = re.search(r"(\d+(?:\.\d+)?)\s*(hour|hr|h|day|d|week|w)s?\b", lowered)
     if explicit:
         amount = float(explicit.group(1))
         unit = explicit.group(2)
         hours = amount * {"hour": 1, "hr": 1, "h": 1, "day": 24, "d": 24, "week": 168, "w": 168}[unit]
-        return min(hours, MAX_WINDOW_HOURS), f"{explicit.group(0).strip()} → {min(hours, MAX_WINDOW_HOURS):g}h"
+        return capped(hours, explicit.group(0).strip())
 
     for phrase, hours in (
         ("next week", 168),
@@ -64,7 +82,7 @@ def _window_hours(text: str) -> tuple[float, str] | None:
         ("few days", 72),
     ):
         if phrase in lowered:
-            return float(hours), f"'{phrase}' → {hours}h"
+            return capped(float(hours), f"'{phrase}'")
     return None
 
 
@@ -96,8 +114,15 @@ def _mentions(text: str, *words: str) -> bool:
     return any(word in lowered for word in words)
 
 
-def suggest_from_rules(text: str) -> Suggestion:
-    """Best-effort translation without a model."""
+def suggest_from_rules(
+    text: str, *, max_window_hours: float = MAX_WINDOW_HOURS
+) -> Suggestion:
+    """Best-effort translation without a model.
+
+    ``max_window_hours`` is the caller's plan ceiling. It only ever narrows
+    the proposal, so a caller that does not know the plan still gets a
+    command the grammar accepts.
+    """
     cleaned = text.strip()
     if not cleaned:
         return Suggestion(None, "none", "Nothing to interpret.")
@@ -143,7 +168,7 @@ def suggest_from_rules(text: str) -> Suggestion:
 
     if wants_screen and target:
         reasons.append(target[1])
-        return _validated(_screen_command(cleaned, target[0], reasons), reasons)
+        return _validated(_screen_command(cleaned, target[0], reasons, max_window_hours), reasons)
 
     if wants_watch and target:
         reasons.append(target[1])
@@ -163,7 +188,7 @@ def suggest_from_rules(text: str) -> Suggestion:
         # An object with no verb is most usefully read as "look at this".
         reasons.append(target[1])
         reasons.append("No action word found, so this was read as a screening request.")
-        return _validated(_screen_command(cleaned, target[0], reasons), reasons)
+        return _validated(_screen_command(cleaned, target[0], reasons, max_window_hours), reasons)
 
     return Suggestion(
         None,
@@ -174,10 +199,12 @@ def suggest_from_rules(text: str) -> Suggestion:
     )
 
 
-def _screen_command(text: str, norad: str, reasons: list[str]) -> str:
+def _screen_command(
+    text: str, norad: str, reasons: list[str], max_window_hours: float
+) -> str:
     """Build a screening command, carrying over any window or threshold given."""
     parts = [f"screen {norad}"]
-    window = _window_hours(text)
+    window = _window_hours(text, max_window_hours)
     if window:
         parts.append(f"--window {window[0]:g}h")
         reasons.append(window[1])

@@ -66,7 +66,10 @@ def seed_well_known_objects(
             norad_id = futures[future]
             try:
                 _, fetched[norad_id] = future.result()
-            except Exception as exc:
+            except Exception as exc:  # noqa: BLE001
+                # Deliberately broad: one object failing to fetch must not
+                # abandon the other nineteen. Every failure is reported back
+                # in the result rather than discarded.
                 errors[norad_id] = str(exc)
 
     service = OntologyService(session, auto_commit=False)

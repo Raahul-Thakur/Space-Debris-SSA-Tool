@@ -12,6 +12,7 @@ pyyaml>=6.0
 click>=8.1
 rich>=13.0
 python-dotenv>=1.0
+typing-extensions>=4.5
 # Ontology API (install with `pip install -e ".[api]"`)
 fastapi>=0.115,<1
 sqlalchemy>=2.0,<3

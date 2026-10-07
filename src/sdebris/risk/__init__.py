@@ -11,8 +11,8 @@ from sdebris.risk.pc import (
 
 __all__ = [
     "RiskTier",
-    "classify_event",
     "build_ric_covariance",
+    "classify_event",
     "probability_of_collision",
     "ric_to_eci_covariance",
 ]

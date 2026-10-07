@@ -56,6 +56,7 @@ from sdebris.jobs import ScreeningJobManager
 from sdebris.models import SpaceObject
 from sdebris.monitoring import seed_well_known_objects
 from sdebris.nl import narrate_event, suggest_from_rules
+from sdebris.nl.translate import MAX_WINDOW_HOURS
 from sdebris.ontology import (
     ConflictError,
     Database,
@@ -770,12 +771,19 @@ def create_app(database_url: str | None = None) -> FastAPI:
         """
         tier = plan_for(session, principal)
         _enforce_command_rate(principal, tier)
-        suggestion = suggest_from_rules(payload.command)
+        # Bounded by the caller's own plan, not just by the grammar. Without
+        # this the interpreter happily proposed a 168-hour window to an
+        # account capped at 24, and the command it suggested failed with a
+        # payment prompt the moment it was run.
+        ceiling = limits_for(tier).max_window_hours or MAX_WINDOW_HOURS
+        suggestion = suggest_from_rules(payload.command, max_window_hours=ceiling)
         return {
             "understood": suggestion.understood,
             "command": suggestion.command,
             "rationale": suggestion.rationale,
             "source": suggestion.source,
+            "plan": tier.value,
+            "max_window_hours": ceiling,
         }
 
     @app.post("/commands/execute", response_model=CommandResponse)

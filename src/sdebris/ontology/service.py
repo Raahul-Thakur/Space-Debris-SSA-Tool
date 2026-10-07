@@ -594,7 +594,12 @@ class OntologyService:
     def list_audit_actions(
         self, entity_type: str | None = None, entity_id: str | None = None
     ) -> list[AuditActionRecord]:
-        statement = select(AuditActionRecord).order_by(desc(AuditActionRecord.occurred_at))
+        # The id breaks any remaining tie, so a given set of records always
+        # comes back in the same order even if two share a timestamp written
+        # by a different process.
+        statement = select(AuditActionRecord).order_by(
+            desc(AuditActionRecord.occurred_at), desc(AuditActionRecord.id)
+        )
         if entity_type:
             statement = statement.where(AuditActionRecord.entity_type == entity_type)
         if entity_id:

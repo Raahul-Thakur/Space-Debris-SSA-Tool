@@ -97,6 +97,44 @@ def test_a_window_beyond_the_parser_maximum_is_clamped() -> None:
     parse_command(suggestion.command)
 
 
+def test_a_proposal_is_narrowed_to_what_the_callers_plan_allows() -> None:
+    """A suggestion that would 402 on execution is not a useful suggestion."""
+    suggestion = suggest_from_rules(
+        "close approaches for the ISS this week", max_window_hours=24
+    )
+    assert suggestion.command == "screen 25544 --window 24h"
+    parse_command(suggestion.command)
+
+
+def test_the_rationale_says_when_a_window_was_capped() -> None:
+    """Silently shortening what was asked for would be worse than refusing."""
+    suggestion = suggest_from_rules("screen the ISS for 7 days", max_window_hours=24)
+    assert "capped" in suggestion.rationale
+    assert "24h" in suggestion.rationale
+
+
+def test_a_window_already_within_the_plan_is_not_annotated() -> None:
+    suggestion = suggest_from_rules("how close does the ISS get today", max_window_hours=24)
+    assert suggestion.command == "screen 25544 --window 24h"
+    assert "capped" not in suggestion.rationale
+
+
+def test_a_higher_plan_ceiling_restores_the_full_window() -> None:
+    suggestion = suggest_from_rules(
+        "close approaches for the ISS this week", max_window_hours=168
+    )
+    assert suggestion.command == "screen 25544 --window 168h"
+
+
+def test_a_plan_ceiling_cannot_widen_past_the_grammar() -> None:
+    """The plan narrows; it never grants more than the parser accepts."""
+    suggestion = suggest_from_rules(
+        "screen the ISS for 90 days", max_window_hours=10_000
+    )
+    assert suggestion.command == "screen 25544 --window 168h"
+    parse_command(suggestion.command)
+
+
 def test_nonsense_is_declined_rather_than_guessed_at() -> None:
     suggestion = suggest_from_rules("make me a sandwich")
     assert suggestion.command is None

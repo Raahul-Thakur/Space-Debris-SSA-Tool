@@ -10,7 +10,6 @@ from dramatiq.brokers.redis import RedisBroker
 from sdebris.jobs.manager import ScreeningJobManager
 from sdebris.ontology.database import Database
 
-
 redis_url = os.getenv("SDEBRIS_REDIS_URL")
 if not redis_url:
     raise RuntimeError("SDEBRIS_REDIS_URL is required for the Redis job backend")

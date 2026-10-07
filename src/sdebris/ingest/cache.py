@@ -6,6 +6,8 @@ import sqlite3
 from datetime import datetime, timezone
 from pathlib import Path
 
+from typing_extensions import Self
+
 from sdebris.models import SpaceObject
 
 _SCHEMA = """
@@ -36,7 +38,10 @@ class TLECache:
     def close(self) -> None:
         self._conn.close()
 
-    def __enter__(self) -> "TLECache":
+    def __enter__(self) -> Self:
+        # Self rather than TLECache, so a subclass used in a `with` block
+        # keeps its own type. Imported from typing_extensions because
+        # typing.Self arrived in 3.11 and this package supports 3.10.
         return self
 
     def __exit__(self, *exc: object) -> None:

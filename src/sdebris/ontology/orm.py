@@ -2,13 +2,15 @@
 
 from __future__ import annotations
 
+import threading
 import uuid
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from typing import Any
 
 from sqlalchemy import (
     JSON,
     Boolean,
+    CheckConstraint,
     DateTime,
     Float,
     ForeignKey,
@@ -17,12 +19,44 @@ from sqlalchemy import (
     String,
     Text,
     UniqueConstraint,
+    func,
 )
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
 
 
 def utcnow() -> datetime:
     return datetime.now(timezone.utc)
+
+
+_audit_clock_lock = threading.Lock()
+_last_audit_time: datetime | None = None
+#: Smallest gap the column can represent, so a nudged value still differs.
+_AUDIT_TICK = timedelta(microseconds=1)
+
+
+def audit_timestamp() -> datetime:
+    """A wall-clock time that never repeats or goes backwards.
+
+    The audit trail is ordered by this column, and the system clock is not
+    fine-grained enough to order it: on Windows ``datetime.now`` advances in
+    steps of about 15 ms, so several governed actions in one request share an
+    identical timestamp and their recorded order becomes whatever the database
+    happens to return. For a log whose purpose is reconstructing what happened
+    in which order, that is a defect rather than an inconvenience.
+
+    Each call therefore returns at least one microsecond after the previous
+    one. Under a burst the values run slightly ahead of true time, by the
+    number of records written within a single clock tick, which is a better
+    trade than an unorderable log. Ordering across processes still relies on
+    the clock, as it must.
+    """
+    global _last_audit_time
+    with _audit_clock_lock:
+        moment = datetime.now(timezone.utc)
+        if _last_audit_time is not None and moment <= _last_audit_time:
+            moment = _last_audit_time + _AUDIT_TICK
+        _last_audit_time = moment
+        return moment
 
 
 def new_id() -> str:
@@ -324,7 +358,7 @@ class AuditActionRecord(Base):
     action_type: Mapped[str] = mapped_column(String(64), nullable=False, index=True)
     actor: Mapped[str] = mapped_column(String(255), nullable=False)
     occurred_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), default=utcnow, nullable=False
+        DateTime(timezone=True), default=audit_timestamp, nullable=False
     )
     entity_type: Mapped[str] = mapped_column(String(64), nullable=False)
     entity_id: Mapped[str] = mapped_column(String(36), nullable=False)
@@ -517,4 +551,33 @@ class BillingEventRecord(Base):
     outcome: Mapped[str] = mapped_column(String(64), nullable=False)
     received_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=utcnow, nullable=False
+    )
+
+
+class RoleGrantRecord(Base):
+    """Which application role an email receives when its token is minted.
+
+    Read by the Supabase access-token hook rather than by this application:
+    the hook stamps `app_metadata.role` into the JWT, and the API only ever
+    sees the result. The model exists so the table is part of the declared
+    schema -- without it, autogenerate sees a table nothing owns and proposes
+    dropping it -- and so an administrative surface can manage grants later.
+
+    The row with email `*` holds the default for accounts with no explicit
+    grant, which is how the default is raised without a migration.
+    """
+
+    __tablename__ = "role_grants"
+    __table_args__ = (
+        CheckConstraint(
+            "role IN ('viewer', 'analyst', 'operator', 'admin')",
+            name="ck_role_grants_known_role",
+        ),
+    )
+
+    email: Mapped[str] = mapped_column(String(255), primary_key=True)
+    role: Mapped[str] = mapped_column(String(32), nullable=False)
+    note: Mapped[str] = mapped_column(Text, nullable=False, server_default="")
+    granted_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now()
     )

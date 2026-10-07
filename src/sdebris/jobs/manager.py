@@ -2,9 +2,9 @@
 
 from __future__ import annotations
 
+import os
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timezone
-import os
 from threading import Lock
 from time import monotonic
 from typing import Any
@@ -247,7 +247,12 @@ class ScreeningJobManager:
                 session.commit()
         except JobCancelled:
             self._finish_cancelled(job_id)
-        except Exception as exc:  # persisted for operator inspection
+        except Exception as exc:  # noqa: BLE001 -- see below
+            # Deliberately broad. This runs on a worker thread, and anything
+            # not caught here kills the job silently: the record would stay
+            # "running" for ever with no message, which is worse than any
+            # unexpected exception. The error is persisted for inspection
+            # rather than swallowed.
             with self.session_factory() as session:
                 job = session.get(ScreeningJobRecord, job_id)
                 if job is not None:

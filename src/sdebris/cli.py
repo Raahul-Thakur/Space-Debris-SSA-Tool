@@ -150,9 +150,11 @@ def screen(
     if persist_ontology:
         database = Database(_database_url(None, config))
         database.initialize()
-        with console.status("Versioning inputs and persisting the ontology run..."):
-            with database.session_factory() as session:
-                summary = persist_screening_result(session, result, objects, config)
+        with (
+            console.status("Versioning inputs and persisting the ontology run..."),
+            database.session_factory() as session,
+        ):
+            summary = persist_screening_result(session, result, objects, config)
         database.engine.dispose()
         console.print(
             f"Ontology run: [cyan]{summary.screening_run_id}[/cyan] · "
