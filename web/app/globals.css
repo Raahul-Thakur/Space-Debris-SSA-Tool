@@ -331,6 +331,75 @@ button { color: inherit; }
 .signin-back a { color: var(--ink-soft); text-decoration: none; }
 .signin-back a:hover { color: var(--signal); }
 
+/* The plain-language reading of an event. Prose, so it gets the text face
+   rather than the mono used for instrument values. */
+.explain-toggle { width: 100%; }
+.narrative {
+  margin-top: 12px;
+  padding: 14px 15px;
+  border-left: 2px solid var(--signal);
+  background: var(--paper-sunk);
+}
+.narrative p {
+  margin: 0 0 10px;
+  font: 400 13px/1.55 var(--text);
+  color: var(--ink);
+}
+.narrative p:last-child { margin-bottom: 0; }
+.narrative-loading { color: var(--ink-faint); font-style: italic; }
+.narrative-source {
+  padding-top: 9px;
+  border-top: 1px solid var(--rule);
+  font: 500 9px var(--mono) !important;
+  letter-spacing: .12em;
+  text-transform: uppercase;
+  color: var(--ink-faint) !important;
+}
+
+/* A translation of what was typed, offered above the sample list. */
+.interpretation {
+  display: block;
+  width: 100%;
+  padding: 12px 14px;
+  border: 0;
+  border-bottom: 1px solid var(--rule);
+  border-left: 2px solid var(--signal);
+  background: var(--paper-sunk);
+  cursor: pointer;
+  text-align: left;
+}
+.interpretation:hover { background: var(--paper-band); }
+.interpretation-head {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  margin-bottom: 6px;
+}
+.interpretation-head em {
+  font: 500 9px var(--mono);
+  font-style: normal;
+  letter-spacing: .16em;
+  color: var(--signal);
+  white-space: nowrap;
+}
+.interpretation-head code {
+  font: 500 13px var(--mono);
+  color: var(--ink);
+}
+.interpretation small {
+  display: block;
+  font: 400 11px/1.45 var(--text);
+  color: var(--ink-soft);
+}
+.interpretation-accept {
+  display: block;
+  margin-top: 8px;
+  font: 500 9px var(--mono);
+  letter-spacing: .16em;
+  text-transform: uppercase;
+  color: var(--signal);
+}
+
 /* ======================================================================= rail */
 .rail {
   grid-row: 2;

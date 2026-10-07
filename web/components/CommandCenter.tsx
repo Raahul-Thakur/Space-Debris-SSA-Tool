@@ -50,6 +50,25 @@ const REFRESH_DEBOUNCE_MS = 1_200;
 const DEFAULT_COMMAND = "screen 25544 --window 72h --threshold 25km";
 /** A command typed before signing in, restored afterwards. */
 const PENDING_COMMAND_KEY = "astra.pending-command";
+/** Verbs the allowlist grammar starts with. */
+const COMMAND_VERBS = ["screen", "monitor", "events", "event", "case", "orbit"];
+/** Long enough to be a question rather than a half-typed command. */
+const MIN_PROSE_LENGTH = 12;
+const INTERPRET_DEBOUNCE_MS = 450;
+
+/**
+ * Whether the text reads as a question rather than as a command.
+ *
+ * Only a hint for when to offer a translation, never a gate on anything: the
+ * allowlist parser decides what is actually runnable, both here and on the
+ * server.
+ */
+function looksLikeProse(text: string): boolean {
+  const trimmed = text.trim();
+  if (trimmed.length < MIN_PROSE_LENGTH || !trimmed.includes(" ")) return false;
+  const verb = trimmed.split(/\s+/)[0].toLowerCase();
+  return !COMMAND_VERBS.includes(verb);
+}
 
 export default function CommandCenter() {
   const router = useRouter();
@@ -230,6 +249,65 @@ export default function CommandCenter() {
     if (hours < 48) return `${Math.round(hours)}H AGO`;
     return `${Math.round(hours / 24)}D AGO`;
   }, [generatedAt, now]);
+
+  // The explanation endpoint is open to anonymous readers, which is the point:
+  // the reading of an event is the most useful thing the platform gives away.
+  const [interpretation, setInterpretation] = useState<{
+    command: string | null;
+    rationale: string;
+  } | null>(null);
+  // Keyed by event so "still loading" is derived from a mismatch rather than
+  // written by clearing state at the top of an effect.
+  const [narrative, setNarrative] = useState<{
+    eventId: string;
+    lines: string[];
+  } | null>(null);
+  const [narrativeOpen, setNarrativeOpen] = useState(false);
+  const selectedEventId = riskEvents[0]?.id ?? null;
+
+  useEffect(() => {
+    if (!narrativeOpen || !selectedEventId) return;
+    if (narrative?.eventId === selectedEventId) return;
+    const eventId = selectedEventId;
+    let active = true;
+    api<{ narrative?: string[] }>(`/events/${eventId}/explanation`)
+      .then((body) => {
+        if (active) setNarrative({ eventId, lines: body.narrative ?? [] });
+      })
+      .catch(() => {
+        if (active) setNarrative({ eventId, lines: [] });
+      });
+    return () => {
+      active = false;
+    };
+  }, [narrativeOpen, selectedEventId, narrative?.eventId]);
+
+  // Translate plain English into a proposal while the operator types. The
+  // server runs every proposal through the real allowlist parser before
+  // returning it, so nothing suggested here can name an action the platform
+  // does not have.
+  useEffect(() => {
+    if (!authenticated || !paletteOpen || !looksLikeProse(command)) {
+      return;
+    }
+    const controller = new AbortController();
+    const timer = setTimeout(() => {
+      api<{ command: string | null; rationale: string }>("/commands/interpret", {
+        method: "POST",
+        body: JSON.stringify({ command }),
+        signal: controller.signal
+      })
+        .then((body) => setInterpretation(body))
+        .catch(() => {
+          // A failed translation is not an error worth showing: the sample
+          // list and the raw input both still work.
+        });
+    }, INTERPRET_DEBOUNCE_MS);
+    return () => {
+      clearTimeout(timer);
+      controller.abort();
+    };
+  }, [authenticated, paletteOpen, command]);
 
   const activeJobId = activeJob?.id;
   useEffect(() => {
@@ -719,9 +797,33 @@ export default function CommandCenter() {
                 <dd>{selectedEvent.id.slice(0, 8)}</dd>
               </div>
             </dl>
-            <button onClick={() => openPalette(`event explain ${selectedEvent.id}`)}>
-              EXPLAIN EVENT ↗
+            <button
+              className="explain-toggle"
+              aria-expanded={narrativeOpen}
+              onClick={() => setNarrativeOpen((open) => !open)}
+            >
+              {narrativeOpen ? "HIDE READING" : "WHAT DOES THIS MEAN?"}
             </button>
+            {narrativeOpen && (
+              <div className="narrative">
+                {narrative?.eventId !== selectedEvent.id ? (
+                  <p className="narrative-loading">Reading the geometry…</p>
+                ) : narrative.lines.length ? (
+                  <>
+                    {narrative.lines.map((line) => (
+                      <p key={line}>{line}</p>
+                    ))}
+                    <p className="narrative-source">
+                      Derived from the numbers above, not written about them.
+                    </p>
+                  </>
+                ) : (
+                  <p className="narrative-loading">
+                    No reading available for this event.
+                  </p>
+                )}
+              </div>
+            )}
           </div>
         ) : (
           <p className="empty">
@@ -781,6 +883,16 @@ export default function CommandCenter() {
             activeIndex={activeSuggestion}
             onPick={pickSample}
             onHover={setActiveSuggestion}
+            interpretation={
+              looksLikeProse(command) ? interpretation : null
+            }
+            onAcceptInterpretation={(proposed) => {
+              setCommand(proposed);
+              setInterpretation(null);
+              setActiveSuggestion(-1);
+              inputRef.current?.focus();
+            }}
+            canInterpret={authenticated}
           />
         )}
         <div className="command-input">
