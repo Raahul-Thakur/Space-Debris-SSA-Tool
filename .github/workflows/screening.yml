@@ -1,22 +1,46 @@
 name: Scheduled screening
 
+# Refreshes the public orbital picture.
+#
+# This workflow previously ran on schedule and achieved nothing: it installed
+# the package without the `api` extra, so SQLAlchemy and psycopg were absent;
+# it passed no database URL, so there was nowhere to write; it omitted
+# --persist-ontology, so nothing would have been written anyway; and it
+# screened the ISS against the Iridium-33 debris cloud, which sit ~360 km
+# apart in altitude and essentially never approach. It uploaded CSV artifacts
+# nobody read, four times a day, for months.
+#
+# The public dashboard is built from whatever this produces. If it stops, the
+# site degrades to a museum piece within about three days: every predicted
+# encounter falls into the past and the freshness indicator starts counting up.
+
 on:
   schedule:
     - cron: "0 */6 * * *"   # every 6 hours
   workflow_dispatch:
     inputs:
-      norad:
-        description: "Target NORAD id"
-        default: "25544"
+      targets:
+        description: "Space-separated NORAD ids to screen"
+        default: "27386 40697 42063"
       group:
-        description: "CelesTrak group"
+        description: "CelesTrak group to screen against"
         default: "iridium-33-debris"
 
 permissions:
   contents: read
 
+concurrency:
+  # Two runs writing screening results at once would interleave their
+  # ontology versioning for no benefit.
+  group: scheduled-screening
+  cancel-in-progress: false
+
 env:
-  TARGET_NORAD: ${{ github.event.inputs.norad || '25544' }}
+  # Objects that actually live in the debris cloud being screened against:
+  # Envisat (~770 km), Sentinel-2A and Sentinel-2B (~786 km). Screening a
+  # target from a different altitude shell produces an empty report, which
+  # is what the previous default did.
+  TARGETS: ${{ github.event.inputs.targets || '27386 40697 42063' }}
   TARGET_GROUP: ${{ github.event.inputs.group || 'iridium-33-debris' }}
 
 jobs:
@@ -28,20 +52,87 @@ jobs:
         with:
           python-version: "3.11"
           cache: pip
+
       - name: Install package
-        run: pip install -e .
-      - name: Run conjunction screening
+        # The `api` extra carries SQLAlchemy and psycopg. Without it the
+        # persist step fails at import.
+        run: pip install -e ".[api]"
+
+      - name: Check the database is reachable
+        # Fail here rather than after several minutes of propagation, and
+        # say plainly when the secret is simply missing.
         env:
+          SDEBRIS_DATABASE_URL: ${{ secrets.SDEBRIS_DATABASE_URL }}
+        run: |
+          if [ -z "${SDEBRIS_DATABASE_URL:-}" ]; then
+            echo "::error::SDEBRIS_DATABASE_URL is not set. Results would be" \
+                 "written to a throwaway SQLite file in this runner and lost."
+            exit 1
+          fi
+          python - <<'PY'
+          import os
+          from sqlalchemy import create_engine, text
+          engine = create_engine(os.environ["SDEBRIS_DATABASE_URL"])
+          with engine.connect() as connection:
+              version = connection.execute(
+                  text("SELECT version_num FROM alembic_version")
+              ).scalar()
+          print(f"connected; schema at {version}")
+          engine.dispose()
+          PY
+
+      - name: Screen each target and persist
+        env:
+          SDEBRIS_DATABASE_URL: ${{ secrets.SDEBRIS_DATABASE_URL }}
           SDEBRIS_WEBHOOK_URL: ${{ secrets.SDEBRIS_WEBHOOK_URL }}
         run: |
-          sdebris screen --norad "$TARGET_NORAD" --group "$TARGET_GROUP" \
-            --window-hours 72 --threshold-km 25 --alert
+          failed=0
+          for norad in $TARGETS; do
+            echo "::group::NORAD $norad"
+            # Each target is independent: one failing to fetch must not cost
+            # the others their refresh.
+            sdebris screen --norad "$norad" --group "$TARGET_GROUP" \
+              --window-hours 72 --threshold-km 25 \
+              --persist-ontology --alert || failed=$((failed + 1))
+            echo "::endgroup::"
+          done
+          if [ "$failed" -gt 0 ]; then
+            echo "::warning::$failed target(s) failed to screen"
+          fi
+
+      - name: Report what the public picture now holds
+        env:
+          SDEBRIS_DATABASE_URL: ${{ secrets.SDEBRIS_DATABASE_URL }}
+        run: |
+          python - <<'PY'
+          import os
+          from sqlalchemy import create_engine, text
+          engine = create_engine(os.environ["SDEBRIS_DATABASE_URL"])
+          with engine.connect() as connection:
+              total = connection.execute(
+                  text("SELECT count(*) FROM conjunction_events")
+              ).scalar()
+              upcoming = connection.execute(
+                  text("SELECT count(*) FROM conjunction_events WHERE tca > now()")
+              ).scalar()
+          print(f"{total} conjunctions stored, {upcoming} still ahead of now")
+          # An empty forward-looking picture is the failure this workflow
+          # exists to prevent, so it is surfaced rather than left to be
+          # noticed on the site.
+          if not upcoming:
+              print("::warning::no upcoming conjunctions; the public dashboard "
+                    "will show only past encounters")
+          engine.dispose()
+          PY
+
       - name: Upload screening report
+        if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: screening-${{ env.TARGET_NORAD }}-${{ github.run_id }}
+          name: screening-${{ github.run_id }}
           path: |
             data/reports/*.csv
             data/reports/*.json
-          if-no-files-found: error
+          # The database is the product now; these are a convenience copy.
+          if-no-files-found: ignore
           retention-days: 14
