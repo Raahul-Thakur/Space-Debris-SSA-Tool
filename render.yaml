@@ -27,6 +27,14 @@ services:
       # preview deployments can reach the API. See docs/deployment-free-tier.md.
       - key: SDEBRIS_CORS_ORIGIN_REGEX
         sync: false
+      # Shared with Vercel. Proves a request arrived through the caching
+      # edge rather than from a browser, which exempts it from the
+      # per-address anonymous allowance -- behind a cache every visitor
+      # shares an address, so metering it would throttle everyone as one
+      # client. Leave unset and nothing breaks; the exemption simply does
+      # not apply. See docs/capacity.md.
+      - key: SDEBRIS_PROXY_TOKEN
+        sync: false
       # Signing secret from the Dodo Payments webhook settings. Without it the
       # billing webhook refuses every delivery with 503 rather than trusting
       # unsigned input.
