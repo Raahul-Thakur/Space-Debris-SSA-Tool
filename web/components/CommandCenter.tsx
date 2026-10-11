@@ -340,9 +340,14 @@ export default function CommandCenter() {
   // nothing and leaving.
   useEffect(() => {
     if (connection !== "unreachable") return;
-    const timer = setTimeout(() => void refresh(), 6000);
-    return () => clearTimeout(timer);
-  }, [connection, refresh, now]);
+    // An interval, not a timeout. A timeout fires once, and `connection`
+    // stays "unreachable" between attempts, so the effect would not re-run
+    // to schedule the next one. The first version of this also listed the
+    // ticking clock in its dependencies, which tore the timer down and
+    // rebuilt it every second -- it could never reach six.
+    const id = setInterval(() => void refresh(), 6000);
+    return () => clearInterval(id);
+  }, [connection, refresh]);
 
   const activeJobId = activeJob?.id;
   useEffect(() => {
