@@ -400,6 +400,45 @@ button { color: inherit; }
   color: var(--signal);
 }
 
+/* Code entry: wide tracking so six digits are checked at a glance. */
+.code-input {
+  font: 500 30px var(--mono) !important;
+  letter-spacing: .34em;
+  text-align: center;
+}
+.signin-secondary {
+  display: flex;
+  gap: 16px;
+  flex-wrap: wrap;
+  margin: 16px 0 0;
+}
+.signin-secondary button {
+  padding: 0;
+  border: 0;
+  background: none;
+  cursor: pointer;
+  font: 500 9px var(--mono);
+  letter-spacing: .14em;
+  text-transform: uppercase;
+  color: var(--ink-soft);
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+.signin-secondary button:hover:not(:disabled) { color: var(--signal); }
+.signin-secondary button:disabled {
+  color: var(--ink-faint);
+  cursor: default;
+  text-decoration: none;
+}
+.signin-error {
+  margin: 18px 0 0;
+  padding: 11px 13px;
+  border-left: 2px solid var(--signal);
+  background: var(--paper-sunk);
+  font: 400 13px/1.55 var(--text);
+  color: var(--ink);
+}
+
 /* ==================================================================== account */
 .account-shell {
   max-width: 760px;

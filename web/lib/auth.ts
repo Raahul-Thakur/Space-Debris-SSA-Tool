@@ -115,6 +115,44 @@ export async function initializeAuth(): Promise<AuthState> {
   return { session: null, development: true, role: roleFromToken(body.access_token) };
 }
 
+/**
+ * Send a six-digit code to the address.
+ *
+ * The same endpoint as the magic link; what arrives depends on the project's
+ * email template. A template containing `{{ .Token }}` sends a code, one
+ * containing `{{ .ConfirmationURL }}` sends a link, and a template with both
+ * lets the recipient choose.
+ *
+ * A code is the better flow for this product. There is no redirect, so none
+ * of the Site URL and allow-list configuration can misdirect anyone; there
+ * is no same-browser constraint, so the request can be made on a laptop and
+ * the code read on a phone; and no credential ever appears in a URL, which
+ * is the failure mode that put a live refresh token in a chat transcript.
+ */
+export async function requestEmailCode(email: string) {
+  const client = getSupabase();
+  if (!client) throw new Error("Supabase authentication is not configured");
+  const { error } = await client.auth.signInWithOtp({
+    email,
+    options: { shouldCreateUser: true }
+  });
+  if (error) throw error;
+}
+
+/** Exchange a six-digit code for a session. */
+export async function verifyEmailCode(email: string, code: string) {
+  const client = getSupabase();
+  if (!client) throw new Error("Supabase authentication is not configured");
+  const { data, error } = await client.auth.verifyOtp({
+    email,
+    token: code.trim(),
+    type: "email"
+  });
+  if (error) throw error;
+  setAccessToken(data.session?.access_token ?? null);
+  return data.session;
+}
+
 export async function signInWithEmail(email: string) {
   const client = getSupabase();
   if (!client) throw new Error("Supabase authentication is not configured");
