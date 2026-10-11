@@ -14,7 +14,7 @@ import {
   useSyncExternalStore
 } from "react";
 import { api, streamSse } from "@/lib/api";
-import { getSupabase, initializeAuth } from "@/lib/auth";
+import { getSupabase, initializeAuth, signOut } from "@/lib/auth";
 import {
   getSeenEventsServerSnapshot,
   getSeenEventsSnapshot,
@@ -548,7 +548,23 @@ export default function CommandCenter() {
           <Link className="topbar-link" href="/docs" data-tour="docs-link">
             DOCS
           </Link>
-          {!authenticated && (
+          {authenticated ? (
+            <button
+              type="button"
+              className="topbar-link"
+              onClick={() => {
+                // Ending a session must not depend on the network call
+                // succeeding: the local token is dropped either way.
+                void signOut().finally(() => {
+                  setAuthenticated(false);
+                  setNotice("Signed out. The public picture stays available.");
+                  void refresh();
+                });
+              }}
+            >
+              SIGN OUT
+            </button>
+          ) : (
             <Link className="topbar-link accent" href="/signin">
               SIGN IN →
             </Link>
