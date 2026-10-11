@@ -14,8 +14,9 @@ build/
 dist/
 site/
 web/node_modules/
-web/.next/
-web/.next-e2e/
+# Any Next build directory: NEXT_DIST_DIR is set to a different one for the
+# end-to-end run, and to throwaway names when a second server is needed.
+web/.next*/
 web/public/cesium/
 *.log
 .env*

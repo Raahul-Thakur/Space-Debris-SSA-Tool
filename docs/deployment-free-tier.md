@@ -200,7 +200,13 @@ Import the repository, set the root directory to `web`, and configure:
 NEXT_PUBLIC_SDEBRIS_API_URL=https://YOUR_API.onrender.com
 NEXT_PUBLIC_SUPABASE_URL=https://PROJECT.supabase.co
 NEXT_PUBLIC_SUPABASE_ANON_KEY=YOUR_PUBLISHABLE_ANON_KEY
+SDEBRIS_PROXY_TOKEN=SHARED_WITH_RENDER
 ```
+
+`SDEBRIS_PROXY_TOKEN` is deliberately not a `NEXT_PUBLIC_` value: it is read
+by the caching route handler on the server, and shipping it to the browser
+would let anyone spend the rate-limit exemption it buys. Set the same value
+on Render. See [capacity.md](capacity.md).
 
 `NEXT_PUBLIC_*` values are inlined at build time, so changing one requires a
 redeploy rather than only an environment-variable edit.
@@ -273,6 +279,16 @@ Test recovery periodically with `pg_restore` into a disposable database.
 - Enable repository branch protection and required CI checks.
 - Add issue templates for bug reports and scientific-method feedback.
 - Put the non-operational limitation in the repository description and launch post.
+- Enable the GitHub and Google providers in Supabase, and check each button
+  completes a round trip rather than returning "Unsupported provider".
+- Configure custom SMTP and raise the email rate limit. Until this is done the
+  project can send about two messages an hour and public sign-up by email does
+  not work; OAuth is unaffected.
+- Confirm the email template contains `{{ .Token }}`, or no code is sent.
+- Set `SDEBRIS_PROXY_TOKEN` to the same value on Render and Vercel.
+- Set the `SDEBRIS_API_URL` repository variable so the keep-warm workflow runs.
+- Confirm `/api/public/monitoring` returns 404 and `/api/public/events/assessed`
+  returns 200: the first is the cache's authorisation boundary.
 
 ## Free-tier limitations
 
@@ -288,11 +304,13 @@ Three consequences are specific to this application:
   the activity feed reconnects with exponential backoff and its header reports
   `RECONNECTING`, then `OFFLINE` after repeated failures, while continuing to
   retry.
-- **An open dashboard keeps the service awake.** The console holds a Server-Sent
-  Events connection open for the activity feed, so the instance does not idle
-  while anyone has the page open. That keeps the app responsive but consumes free
-  instance hours continuously; a single forgotten tab can spend the monthly
-  allowance.
+- **Instance hours are the binding constraint, not traffic.** The console holds a
+  Server-Sent Events connection open for the activity feed, so the instance does
+  not idle while anyone has the page open, and the keep-warm workflow pings it
+  deliberately for eighteen hours a day. Both spend from the same 750-hour monthly
+  allowance, which is shared across every free service on the account. Public
+  reads no longer contribute, because they are served from the edge without
+  reaching the instance at all.
 - **Supabase free projects pause after a period of inactivity** and need to be
   resumed from the dashboard, which matters for a portfolio link that is visited
   irregularly.

@@ -1,0 +1,81 @@
+name: Keep the API warm
+
+# Render's free tier stops an instance after 15 minutes without a request, and
+# the next visitor then waits the better part of a minute for it to boot. This
+# pings it often enough that it never gets there.
+#
+# Not around the clock, though, and the arithmetic is the reason. The free
+# allowance is 750 instance-hours a month shared across every free service on
+# the account. Staying up continuously costs 744 of them in a 31-day month,
+# which leaves six hours of headroom for the whole account -- less than one
+# deploy's worth of overlap, and nothing at all if a second free service is
+# ever added. Running out does not degrade the service, it suspends it for the
+# remainder of the month.
+#
+# So the window below is eighteen hours, 10:00-03:59 UTC, costing about 560
+# hours and leaving real slack. It covers the Indian evening, the European
+# working day and evening, and the Americas from morning to night. The six
+# hours it omits are the small hours almost everywhere. A visitor arriving
+# then waits for a cold start, which the console already handles honestly
+# rather than reporting an empty catalogue.
+#
+# Widen it to `*/10 * * * *` if the account is on a paid plan or has hours to
+# spare; narrow it if anything else free is running alongside.
+#
+# The ping goes to /ready rather than /health because /ready runs a trivial
+# query. That keeps the Supabase project from pausing too: its free tier pauses
+# a project after seven days with no database activity, and a dashboard nobody
+# visits over a holiday would otherwise come back dead.
+#
+# GitHub's scheduler is best-effort. A workflow asked for every ten minutes can
+# arrive twenty or more minutes late when the hosted runners are busy, which is
+# long enough for the instance to have gone to sleep. The loop below covers the
+# interval from inside the run so a late start still leaves no 15-minute gap.
+# Runner minutes are unmetered on public repositories; on a private one this
+# would exhaust the 2,000-minute monthly allowance in about a week.
+#
+# A dedicated uptime service (UptimeRobot's free tier polls every five minutes)
+# is more reliable than this and takes two minutes to set up. This exists so
+# the behaviour is in the repository rather than in somebody's account.
+
+on:
+  schedule:
+    # Every ten minutes, 10:00-03:59 UTC. See the note above before widening.
+    - cron: "*/10 10-23,0-3 * * *"
+  workflow_dispatch:
+
+permissions: {}
+
+concurrency:
+  # Overlapping runs are harmless, but there is no point paying for them.
+  group: keep-warm
+  cancel-in-progress: false
+
+jobs:
+  ping:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Ping until the next run is due
+        env:
+          # A repository *variable*, not a secret: the API's address is public
+          # and treating it as a secret only makes failures harder to read.
+          API_URL: ${{ vars.SDEBRIS_API_URL }}
+        run: |
+          if [ -z "$API_URL" ]; then
+            echo "::notice::SDEBRIS_API_URL is not set; nothing to keep warm."
+            echo "Set it under Settings -> Secrets and variables -> Actions -> Variables."
+            exit 0
+          fi
+          # Three attempts four minutes apart. A cold instance can take ~50s to
+          # answer, so the timeout is generous and a failure is reported but
+          # does not fail the run: a red cron every ten minutes trains everyone
+          # to ignore it, and this job is not load-bearing.
+          for attempt in 1 2 3; do
+            if [ "$attempt" -gt 1 ]; then sleep 240; fi
+            code=$(curl -sS -o /dev/null -w '%{http_code}' --max-time 90 "$API_URL/ready" || echo 000)
+            echo "attempt $attempt: HTTP $code"
+            if [ "$code" != "200" ]; then
+              echo "::warning::/ready answered $code"
+            fi
+          done
