@@ -2,20 +2,24 @@ import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { beforeEach, expect, it, vi } from "vitest";
 import SignIn from "@/components/SignIn";
 
-const { request, verify, replace } = vi.hoisted(() => ({
+const { request, verify, provider, replace } = vi.hoisted(() => ({
   request: vi.fn(),
   verify: vi.fn(),
+  provider: vi.fn(),
   replace: vi.fn(),
 }));
 vi.mock("@/lib/auth", () => ({
   requestEmailCode: request,
   verifyEmailCode: verify,
+  signInWithProvider: provider,
 }));
 vi.mock("next/navigation", () => ({ useRouter: () => ({ replace }) }));
 
 beforeEach(() => {
   request.mockReset().mockResolvedValue(undefined);
   verify.mockReset().mockResolvedValue({});
+  // Resolves without returning: the real one navigates away.
+  provider.mockReset().mockImplementation(() => new Promise(() => {}));
   replace.mockReset();
 });
 
@@ -98,4 +102,51 @@ it("can start again with a different address", async () => {
 it("keeps the limitations notice on both steps", async () => {
   await askForCode();
   expect(screen.getByText(/must not be used for operational maneuver/i)).toBeInTheDocument();
+});
+
+// ------------------------------------------------------------- providers
+//
+// OAuth is offered first and email third, and that ordering is a capacity
+// decision rather than a cosmetic one: the project can send a couple of
+// emails an hour through the built-in sender, while a redirect to GitHub is
+// unmetered. If these buttons regress, public sign-up stops working at the
+// third visitor.
+
+it("offers GitHub and Google before asking for an address", () => {
+  render(<SignIn />);
+  expect(screen.getByRole("button", { name: /continue with github/i })).toBeInTheDocument();
+  expect(screen.getByRole("button", { name: /continue with google/i })).toBeInTheDocument();
+});
+
+it("hands sign-in to the chosen provider", () => {
+  render(<SignIn />);
+  fireEvent.click(screen.getByRole("button", { name: /continue with github/i }));
+  expect(provider).toHaveBeenCalledWith("github");
+});
+
+it("locks the other routes once a redirect is under way", async () => {
+  render(<SignIn />);
+  fireEvent.click(screen.getByRole("button", { name: /continue with google/i }));
+  expect(await screen.findByRole("button", { name: /redirecting/i })).toBeDisabled();
+  expect(screen.getByRole("button", { name: /continue with github/i })).toBeDisabled();
+  expect(screen.getByRole("button", { name: /send code/i })).toBeDisabled();
+});
+
+it("does not blame the visitor for a provider nobody enabled", async () => {
+  provider.mockRejectedValueOnce(new Error("Unsupported provider: provider is not enabled"));
+  render(<SignIn />);
+  fireEvent.click(screen.getByRole("button", { name: /continue with github/i }));
+  expect(await screen.findByText(/not available yet/i)).toBeInTheDocument();
+  // And the page must not be left stuck mid-redirect.
+  expect(screen.getByRole("button", { name: /continue with github/i })).toBeEnabled();
+});
+
+it("points at the unmetered route when the mail allowance is gone", async () => {
+  request.mockRejectedValueOnce(new Error("email rate limit exceeded"));
+  render(<SignIn />);
+  fireEvent.change(screen.getByLabelText("EMAIL ADDRESS"), {
+    target: { value: "someone@example.com" },
+  });
+  fireEvent.click(screen.getByRole("button", { name: /send code/i }));
+  expect(await screen.findByText(/github or google/i)).toBeInTheDocument();
 });

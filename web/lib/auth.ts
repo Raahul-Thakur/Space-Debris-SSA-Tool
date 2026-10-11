@@ -45,9 +45,11 @@ let supabase: SupabaseClient | null = null;
  * session using a verifier held in this browser. The code is worthless to
  * anyone who intercepts it, because they do not have the verifier.
  *
- * The trade-off is that the link must be opened in the browser that asked
- * for it: requesting on a laptop and opening on a phone will not work. That
- * is the accepted cost, and `signInWithEmail` warns about it.
+ * PKCE's usual trade-off -- the link must be opened in the browser that
+ * requested it -- does not bite here, because nothing in this application
+ * signs in by link any more. OAuth returns to the same browser by
+ * construction, and a six-digit code carries no verifier, so it can be read
+ * on a phone and typed on a laptop.
  */
 export function getSupabase(): SupabaseClient | null {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
@@ -115,6 +117,35 @@ export async function initializeAuth(): Promise<AuthState> {
   return { session: null, development: true, role: roleFromToken(body.access_token) };
 }
 
+/** The identity providers wired up in the Supabase project. */
+export type OAuthProvider = "github" | "google";
+
+/**
+ * Hand sign-in to GitHub or Google.
+ *
+ * This is the preferred route, and not only for convenience. Every emailed
+ * credential is metered: the built-in Supabase sender allows a couple of
+ * messages an hour project-wide, and even behind a real SMTP provider the
+ * allowance is finite and shared by everyone trying to sign in at once. An
+ * OAuth round-trip costs nothing, cannot be rate-limited by a mail provider,
+ * and never leaves a credential in an inbox. For a platform that expects to
+ * be read by far more people than it has capacity to email, that difference
+ * is the difference between opening to the public and not.
+ *
+ * `signInWithOAuth` navigates away, so nothing after it runs. The provider
+ * returns to the site root with a PKCE code, which the client exchanges on
+ * load in `initializeAuth`, exactly as it would after any other redirect.
+ */
+export async function signInWithProvider(provider: OAuthProvider) {
+  const client = getSupabase();
+  if (!client) throw new Error("Supabase authentication is not configured");
+  const { error } = await client.auth.signInWithOAuth({
+    provider,
+    options: { redirectTo: `${window.location.origin}/` }
+  });
+  if (error) throw error;
+}
+
 /**
  * Send a six-digit code to the address.
  *
@@ -151,16 +182,6 @@ export async function verifyEmailCode(email: string, code: string) {
   if (error) throw error;
   setAccessToken(data.session?.access_token ?? null);
   return data.session;
-}
-
-export async function signInWithEmail(email: string) {
-  const client = getSupabase();
-  if (!client) throw new Error("Supabase authentication is not configured");
-  const { error } = await client.auth.signInWithOtp({
-    email,
-    options: { emailRedirectTo: `${window.location.origin}/` }
-  });
-  if (error) throw error;
 }
 
 /**
