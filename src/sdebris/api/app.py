@@ -6,7 +6,8 @@ import asyncio
 import json
 import os
 import re
-from collections.abc import Iterator
+import secrets
+from collections.abc import Iterator, Sequence
 from contextlib import asynccontextmanager
 from datetime import datetime, timedelta, timezone
 from typing import Annotated
@@ -14,12 +15,13 @@ from typing import Annotated
 import uvicorn
 from fastapi import Depends, FastAPI, HTTPException, Query, Request
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import JSONResponse, StreamingResponse
+from fastapi.responses import JSONResponse, Response, StreamingResponse
 from sqlalchemy import func, select, text
 from sqlalchemy.orm import Session
 
 from sdebris import __version__
 from sdebris.activity import MAX_FEED_ITEMS, collect_activity, feed_cursor
+from sdebris.api.public_cache import PublicCache
 from sdebris.auth import (
     Authenticator,
     OptionalPrincipalDep,
@@ -134,6 +136,25 @@ ACTIVITY_POLL_SECONDS = 2.0
 #: How far back a client with no cursor is replayed when it first connects.
 ACTIVITY_REPLAY_HOURS = 6
 
+#: How long a public read may be served from cache.
+#:
+#: Five minutes against a picture the scheduled screening rewrites every six
+#: hours. The figure is not about staleness -- an hour would still be fresh
+#: by that measure -- but about how long a visitor should wait to see a
+#: manual screening appear, and about keeping the window short enough that a
+#: bad payload cannot persist long after it is fixed.
+PUBLIC_DATA_TTL_SECONDS = 300
+#: The ontology and the methodology change when the code changes, never
+#: between deploys, so they are held until the process restarts anyway.
+PUBLIC_STATIC_TTL_SECONDS = 3600
+#: A generated narrative is derived from an event that is itself cached.
+PUBLIC_NARRATIVE_TTL_SECONDS = 900
+
+#: Most objects one batched trajectory request may ask for. The console asks
+#: for its whole catalogue at once, so this has to exceed it comfortably;
+#: it exists to stop a single request from pinning the instance.
+MAX_BATCH_TRAJECTORIES = 40
+
 ONTOLOGY = OntologyDescription(
     object_types={
         "SpaceObject": ["norad_id", "owner", "orbit_class", "status"],
@@ -158,6 +179,22 @@ ONTOLOGY = OntologyDescription(
     actions=[action.value for action in ActionType],
 )
 
+#: What the numbers on this site are and are not. Fixed at build time.
+METHODOLOGY: dict[str, object] = {
+    "operational_use": False,
+    "purpose": "Education, portfolio demonstration, and community review",
+    "orbit_source": "Public two-line element sets (TLE)",
+    "propagator": "SGP4 in the TEME frame",
+    "covariance": "Synthetic age-weighted RIC covariance",
+    "probability_model": "Illustrative Foster/Chan-style estimate",
+    "limitations": [
+        "No authoritative covariance messages are ingested",
+        "TLE accuracy degrades with age and maneuver activity",
+        "Results must not drive operational collision-avoidance decisions",
+    ],
+    "documentation": "/docs/methodology",
+}
+
 
 def get_session(request: Request) -> Iterator[Session]:
     with request.app.state.database.session_factory() as session:
@@ -165,6 +202,24 @@ def get_session(request: Request) -> Iterator[Session]:
 
 
 SessionDep = Annotated[Session, Depends(get_session)]
+
+
+def _grid_anchor(ttl_seconds: int) -> datetime:
+    """Snap a propagation start time to a cache-aligned instant.
+
+    A time grid that begins at "now" makes every request unique, so a
+    cache in front of it would never see the same key twice and would be
+    worthless. Rounding the start down to a multiple of the cache lifetime
+    gives every caller inside that window an identical request, and so an
+    identical answer.
+
+    The cost is that a track can begin up to one window in the past. For a
+    three-hour visualisation refreshed every five minutes that is not
+    perceptible, and it buys determinism: the same question now returns the
+    same answer, which it did not before.
+    """
+    epoch = int(datetime.now(timezone.utc).timestamp())
+    return datetime.fromtimestamp(epoch - epoch % ttl_seconds, tz=timezone.utc)
 
 
 def _float_param(raw: str | None, fallback: float) -> float:
@@ -212,6 +267,82 @@ def _assessed_events(session: Session, tier: str | None = None) -> dict[str, obj
             for event, assessment in rows
         ]
     }
+
+
+def _build_trajectories(
+    session: Session,
+    norad_ids: Sequence[str],
+    *,
+    window_hours: float,
+    step_sec: int,
+    start: datetime,
+) -> list[TrajectoryResponse]:
+    """Propagate several objects across one shared time grid.
+
+    SGP4 itself is evaluated per object and cannot be avoided, but everything
+    around it can be shared. Building the grid and converting it to Julian
+    dates is a Python loop over every sample, and it was previously repeated
+    once per object; the console asks for its whole catalogue on every paint,
+    so that was twenty identical conversions, twenty HTTP round trips and
+    twenty database sessions to draw one picture.
+
+    Objects that are unknown, or that have no element set, are omitted rather
+    than raising. A batch is drawing a globe: one object whose elements have
+    not been ingested should cost that one track, not the whole view.
+    """
+    wanted = list(dict.fromkeys(norad_ids))
+    records = session.scalars(
+        select(SpaceObjectRecord).where(SpaceObjectRecord.norad_id.in_(wanted))
+    ).all()
+    by_norad = {record.norad_id: record for record in records}
+    if not records:
+        return []
+
+    # One query for every element set in play, newest first, keeping the first
+    # seen for each object. The alternative is a correlated subquery per
+    # object, which is the per-object round trip this function exists to undo.
+    elements = session.scalars(
+        select(ElementSetRecord)
+        .where(ElementSetRecord.space_object_id.in_([record.id for record in records]))
+        .order_by(ElementSetRecord.epoch.desc())
+    ).all()
+    latest: dict[str, ElementSetRecord] = {}
+    for element in elements:
+        latest.setdefault(element.space_object_id, element)
+
+    resolved: list[tuple[str, str, SpaceObject]] = []
+    for norad_id in wanted:
+        record = by_norad.get(norad_id)
+        if record is None:
+            continue
+        element = latest.get(record.id)
+        if element is None:
+            continue
+        resolved.append(
+            (norad_id, record.name, SpaceObject(norad_id, record.name, element.line1, element.line2))
+        )
+    if not resolved:
+        return []
+
+    times = make_time_grid(start=start, window_hours=window_hours, step_sec=step_sec)
+    ephemeris = propagate_objects([entry[2] for entry in resolved], times)
+    return [
+        TrajectoryResponse(
+            norad_id=norad_id,
+            name=name,
+            points=[
+                TrajectoryPoint(
+                    timestamp=timestamp.to_pydatetime(),
+                    x_km=float(ephemeris.positions[row, index, 0]),
+                    y_km=float(ephemeris.positions[row, index, 1]),
+                    z_km=float(ephemeris.positions[row, index, 2]),
+                    valid=bool(ephemeris.valid[row, index]),
+                )
+                for index, timestamp in enumerate(times)
+            ],
+        )
+        for row, (norad_id, name, _) in enumerate(resolved)
+    ]
 
 
 def _event_explanation(event_id: str, session: Session) -> dict[str, object]:
@@ -375,6 +506,10 @@ def create_app(database_url: str | None = None) -> FastAPI:
     command_limiter = SlidingWindowLimiter()
     anonymous_limiter = SlidingWindowLimiter()
     authenticator = Authenticator()
+    # Shared secret proving a request came from the caching edge in front of
+    # this service rather than from a browser. Unset by default, in which
+    # case no caller is ever exempted from the anonymous allowance.
+    proxy_token = os.getenv("SDEBRIS_PROXY_TOKEN") or None
 
     @asynccontextmanager
     async def lifespan(_app: FastAPI):
@@ -395,6 +530,44 @@ def create_app(database_url: str | None = None) -> FastAPI:
     app.state.database = database
     app.state.jobs = jobs
     app.state.authenticator = authenticator
+
+    # Per-application rather than module-level, so that two apps built in
+    # the same process -- which is what the test suite does -- cannot serve
+    # each other's rows.
+    public_cache = PublicCache()
+    app.state.public_cache = public_cache
+
+    def _public_json(key: str, ttl: int, compute) -> Response:
+        """Serve a public payload from cache, and say so in the headers.
+
+        Two caches are addressed at once. ``s-maxage`` is read by a shared
+        cache -- the edge in front of the site -- and is what keeps the bulk
+        of public traffic from reaching this process at all. ``max-age`` is
+        the browser's own copy, kept short because a visitor pressing reload
+        after running a screening should see it.
+
+        ``stale-while-revalidate`` matters more here than it usually would:
+        the instance this runs on sleeps when idle and takes most of a
+        minute to wake. A shared cache holding a usable copy means the first
+        visitor after a quiet spell sees the picture immediately instead of
+        a loading state, while the refresh happens behind them.
+
+        Returning a ``Response`` bypasses FastAPI's own serialisation, which
+        is the point: the bytes were encoded once, on the first request that
+        missed. ``response_model`` is still declared on each route so the
+        OpenAPI schema stays accurate.
+        """
+        body = public_cache.get_or_compute(key, ttl, compute)
+        return Response(
+            content=body,
+            media_type="application/json",
+            headers={
+                "Cache-Control": (
+                    f"public, max-age={min(ttl, 60)}, s-maxage={ttl}, "
+                    f"stale-while-revalidate={ttl * 10}"
+                )
+            },
+        )
     @app.middleware("http")
     async def throttle_anonymous(request: Request, call_next):
         """Meter unauthenticated traffic by client address.
@@ -407,16 +580,37 @@ def create_app(database_url: str | None = None) -> FastAPI:
         """
         if request.headers.get("authorization"):
             return await call_next(request)
+
+        # The caching edge is exempt, and has to be. Behind a proxy every
+        # visitor arrives from the same few addresses, so metering by
+        # address would meter the entire internet as one client and refuse
+        # the second person to open the site. Nor is the allowance needed
+        # there: what reaches this process through a cache is bounded by the
+        # cache lifetime, which is a firmer ceiling than any limiter.
+        presented = request.headers.get("x-sdebris-proxy")
+        if proxy_token and presented and secrets.compare_digest(presented, proxy_token):
+            return await call_next(request)
+
         address = client_address(request)
-        propagating = request.url.path.endswith("/trajectory")
-        if propagating:
+        path = request.url.path
+        params = request.query_params
+        batched = path.endswith("/trajectories")
+        if batched or path.endswith("/trajectory"):
             key = f"anon:propagate:{address}"
             limit = ANONYMOUS_PROPAGATION_UNITS_PER_MINUTE
-            params = request.query_params
             cost = propagation_cost(
                 _float_param(params.get("window_hours"), 3.0),
                 _float_param(params.get("step_sec"), 120.0),
             )
+            if batched:
+                # Batching is a saving in round trips, not in propagation.
+                # Charging per request would let one call do the work of
+                # forty and pay for one.
+                requested = [
+                    part for part in (params.get("norad_ids") or "").split(",")
+                    if part.strip()
+                ]
+                cost *= max(1, len(requested))
         else:
             key = f"anon:read:{address}"
             limit = ANONYMOUS_REQUESTS_PER_MINUTE
@@ -516,25 +710,12 @@ def create_app(database_url: str | None = None) -> FastAPI:
         }
 
     @app.get("/ontology", response_model=OntologyDescription)
-    def describe_ontology() -> OntologyDescription:
-        return ONTOLOGY
+    def describe_ontology() -> Response:
+        return _public_json("ontology", PUBLIC_STATIC_TTL_SECONDS, lambda: ONTOLOGY)
 
     @app.get("/methodology")
-    def methodology() -> dict[str, object]:
-        return {
-            "operational_use": False,
-            "purpose": "Education, portfolio demonstration, and community review",
-            "orbit_source": "Public two-line element sets (TLE)",
-            "propagator": "SGP4 in the TEME frame",
-            "covariance": "Synthetic age-weighted RIC covariance",
-            "probability_model": "Illustrative Foster/Chan-style estimate",
-            "limitations": [
-                "No authoritative covariance messages are ingested",
-                "TLE accuracy degrades with age and maneuver activity",
-                "Results must not drive operational collision-avoidance decisions",
-            ],
-            "documentation": "/docs/methodology",
-        }
+    def methodology() -> Response:
+        return _public_json("methodology", PUBLIC_STATIC_TTL_SECONDS, lambda: METHODOLOGY)
 
     # --------------------------------------------------------------- objects
     @app.post("/objects", response_model=SpaceObjectView, status_code=201)
@@ -550,12 +731,20 @@ def create_app(database_url: str | None = None) -> FastAPI:
         session: SessionDep,
         limit: int = Query(default=100, ge=1, le=1000),
         offset: int = Query(default=0, ge=0),
-    ):
-        return OntologyService(session).list_space_objects(limit, offset)
+    ) -> Response:
+        return _public_json(
+            f"objects:{limit}:{offset}",
+            PUBLIC_DATA_TTL_SECONDS,
+            lambda: OntologyService(session).list_space_objects(limit, offset),
+        )
 
     @app.get("/objects/{norad_id}", response_model=SpaceObjectView)
-    def get_object(norad_id: str, session: SessionDep):
-        return OntologyService(session).get_space_object_by_norad(norad_id)
+    def get_object(norad_id: str, session: SessionDep) -> Response:
+        return _public_json(
+            f"object:{norad_id}",
+            PUBLIC_DATA_TTL_SECONDS,
+            lambda: OntologyService(session).get_space_object_by_norad(norad_id),
+        )
 
     @app.patch("/objects/{norad_id}", response_model=SpaceObjectView)
     def update_object(
@@ -625,9 +814,7 @@ def create_app(database_url: str | None = None) -> FastAPI:
         return OntologyService(session).create_event(payload)
 
     @app.get("/events/assessed")
-    def list_assessed_events(
-        session: SessionDep, tier: str | None = None
-    ) -> dict[str, object]:
+    def list_assessed_events(session: SessionDep, tier: str | None = None) -> Response:
         """Read-only equivalent of `events list`, for dashboard polling.
 
         Open to anonymous readers, like ``GET /events`` beside it. The two
@@ -635,7 +822,11 @@ def create_app(database_url: str | None = None) -> FastAPI:
         not there protected nothing; it only broke the dashboard for visitors
         who had not signed in. Anonymous traffic is metered by address instead.
         """
-        return _assessed_events(session, tier)
+        return _public_json(
+            f"events:assessed:{tier or 'all'}",
+            PUBLIC_DATA_TTL_SECONDS,
+            lambda: _assessed_events(session, tier),
+        )
 
     @app.get("/events", response_model=list[ConjunctionEventView])
     def list_events(
@@ -643,9 +834,13 @@ def create_app(database_url: str | None = None) -> FastAPI:
         status: str | None = None,
         norad_id: str | None = None,
         limit: int = Query(default=100, ge=1, le=1000),
-    ):
-        return OntologyService(session).list_events(
-            status=status, norad_id=norad_id, limit=limit
+    ) -> Response:
+        return _public_json(
+            f"events:{status or 'any'}:{norad_id or 'any'}:{limit}",
+            PUBLIC_DATA_TTL_SECONDS,
+            lambda: OntologyService(session).list_events(
+                status=status, norad_id=norad_id, limit=limit
+            ),
         )
 
     # ---------------------------------------------------------- command center
@@ -964,38 +1159,72 @@ def create_app(database_url: str | None = None) -> FastAPI:
         session: SessionDep,
         window_hours: float = Query(default=3, gt=0, le=24),
         step_sec: int = Query(default=120, ge=10, le=900),
-    ):
-        obj = session.scalar(
-            select(SpaceObjectRecord).where(SpaceObjectRecord.norad_id == norad_id)
-        )
-        if obj is None:
-            raise HTTPException(status_code=404, detail="object not found")
-        element = session.scalar(
-            select(ElementSetRecord)
-            .where(ElementSetRecord.space_object_id == obj.id)
-            .order_by(ElementSetRecord.epoch.desc())
-            .limit(1)
-        )
-        if element is None:
-            raise HTTPException(status_code=404, detail="object has no element set")
-        domain_object = SpaceObject(norad_id, obj.name, element.line1, element.line2)
-        times = make_time_grid(window_hours=window_hours, step_sec=step_sec)
-        ephemeris = propagate_objects([domain_object], times)
-        points = [
-            TrajectoryPoint(
-                timestamp=timestamp.to_pydatetime(),
-                x_km=float(ephemeris.positions[0, index, 0]),
-                y_km=float(ephemeris.positions[0, index, 1]),
-                z_km=float(ephemeris.positions[0, index, 2]),
-                valid=bool(ephemeris.valid[0, index]),
+    ) -> Response:
+        anchor = _grid_anchor(PUBLIC_DATA_TTL_SECONDS)
+
+        def compute() -> TrajectoryResponse:
+            tracks = _build_trajectories(
+                session,
+                [norad_id],
+                window_hours=window_hours,
+                step_sec=step_sec,
+                start=anchor,
             )
-            for index, timestamp in enumerate(times)
-        ]
-        return TrajectoryResponse(norad_id=norad_id, name=obj.name, points=points)
+            if not tracks:
+                raise HTTPException(status_code=404, detail="object not found")
+            return tracks[0]
+
+        return _public_json(
+            f"trajectory:{norad_id}:{window_hours}:{step_sec}:{anchor.isoformat()}",
+            PUBLIC_DATA_TTL_SECONDS,
+            compute,
+        )
+
+    @app.get("/trajectories", response_model=list[TrajectoryResponse])
+    def object_trajectories(
+        session: SessionDep,
+        norad_ids: str = Query(description="Comma-separated NORAD ids"),
+        window_hours: float = Query(default=3, gt=0, le=24),
+        step_sec: int = Query(default=120, ge=10, le=900),
+    ) -> Response:
+        """Every track the globe needs, in one request.
+
+        The console previously issued one call per object, which on a
+        twenty-object catalogue meant twenty requests before the first paint
+        was complete -- the dominant share of all traffic this service sees,
+        and the reason a handful of simultaneous visitors could saturate it.
+        """
+        wanted = [part.strip() for part in norad_ids.split(",") if part.strip()]
+        if not wanted:
+            raise HTTPException(status_code=422, detail="norad_ids must not be empty")
+        if len(wanted) > MAX_BATCH_TRAJECTORIES:
+            raise HTTPException(
+                status_code=422,
+                detail=f"at most {MAX_BATCH_TRAJECTORIES} objects per request",
+            )
+        anchor = _grid_anchor(PUBLIC_DATA_TTL_SECONDS)
+        # Sorted, so that two callers asking for the same set in a different
+        # order share one cache entry rather than computing it twice.
+        key = ",".join(sorted(set(wanted)))
+        return _public_json(
+            f"trajectories:{key}:{window_hours}:{step_sec}:{anchor.isoformat()}",
+            PUBLIC_DATA_TTL_SECONDS,
+            lambda: _build_trajectories(
+                session,
+                wanted,
+                window_hours=window_hours,
+                step_sec=step_sec,
+                start=anchor,
+            ),
+        )
 
     @app.get("/events/{event_id}/explanation")
-    def explain_event(event_id: str, session: SessionDep) -> dict[str, object]:
-        return _event_explanation(event_id, session)
+    def explain_event(event_id: str, session: SessionDep) -> Response:
+        return _public_json(
+            f"explanation:{event_id}",
+            PUBLIC_NARRATIVE_TTL_SECONDS,
+            lambda: _event_explanation(event_id, session),
+        )
 
     @app.post(
         "/events/{event_id}/assessments",

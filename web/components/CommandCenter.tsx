@@ -13,7 +13,7 @@ import {
   useState,
   useSyncExternalStore
 } from "react";
-import { api, streamSse } from "@/lib/api";
+import { api, publicApi, streamSse } from "@/lib/api";
 import { getSupabase, initializeAuth, signOut } from "@/lib/auth";
 import {
   getSeenEventsServerSnapshot,
@@ -111,6 +111,9 @@ export default function CommandCenter() {
   const inputRef = useRef<HTMLInputElement>(null);
   const refreshTimer = useRef<ReturnType<typeof setTimeout>>(undefined);
   const monitoredRef = useRef<MonitoredObject[]>([]);
+  // Read inside `refresh`, which deliberately keeps empty dependencies so
+  // that it does not change identity and rebuild the reconnect timer.
+  const authenticatedRef = useRef(false);
 
   /** Reinstate a command typed before the visitor was sent to sign in. */
   const restorePendingCommand = useCallback(() => {
@@ -132,11 +135,17 @@ export default function CommandCenter() {
       // null means the request failed; an empty array means the API
       // answered and there is genuinely nothing. Collapsing the two is what
       // produced "the public catalogue is empty" while it held 20 objects.
-      api<Job[]>("/screening-jobs").catch(() => null),
+      // A visitor with no account has no jobs, and the endpoint requires
+      // one, so asking is a guaranteed 401 -- a round trip to a sleeping
+      // instance for an answer already known. Empty rather than null: the
+      // list is genuinely empty, not unavailable.
+      authenticatedRef.current
+        ? api<Job[]>("/screening-jobs").catch(() => null)
+        : Promise.resolve<Job[]>([]),
       api<MonitoredObject[]>("/monitoring").catch(() => null),
       // A plain read, not `events list` through the command endpoint: polling
       // must not fill the audit log and the activity feed with its own traffic.
-      api<{ events: RiskEvent[]; generated_at: string | null }>(
+      publicApi<{ events: RiskEvent[]; generated_at: string | null }>(
         "/events/assessed"
       ).catch(() => null)
     ]);
@@ -163,12 +172,18 @@ export default function CommandCenter() {
     const ids = objects.length
       ? objects.map((object) => object.norad_id)
       : ["25544"];
-    const paths = ids.map((id) =>
-      api<Trajectory>(`/objects/${id}/trajectory?window_hours=3&step_sec=180`).catch(
-        () => null
-      )
-    );
-    setTrajectories((await Promise.all(paths)).filter(Boolean) as Trajectory[]);
+    // One request for the whole globe. This was previously a call per
+    // object, which on a twenty-object catalogue meant twenty round trips
+    // and twenty separate propagations before the first paint finished --
+    // the great majority of everything this site asked of its API.
+    const tracks = await publicApi<Trajectory[]>(
+      `/trajectories?norad_ids=${encodeURIComponent(ids.join(","))}` +
+        "&window_hours=3&step_sec=180"
+    ).catch(() => null);
+    // Leave the previous tracks alone on failure; a blip should not blank
+    // the globe, which is the same reason the reads above keep their last
+    // known good value.
+    if (tracks !== null) setTrajectories(tracks);
   }, []);
 
   // Stream activity reloads the panels, but only once per burst.
@@ -291,7 +306,7 @@ export default function CommandCenter() {
     if (narrative?.eventId === selectedEventId) return;
     const eventId = selectedEventId;
     let active = true;
-    api<{ narrative?: string[] }>(`/events/${eventId}/explanation`)
+    publicApi<{ narrative?: string[] }>(`/events/${eventId}/explanation`)
       .then((body) => {
         if (active) setNarrative({ eventId, lines: body.narrative ?? [] });
       })
@@ -333,6 +348,10 @@ export default function CommandCenter() {
   useEffect(() => {
     monitoredRef.current = monitored;
   }, [monitored]);
+
+  useEffect(() => {
+    authenticatedRef.current = authenticated;
+  }, [authenticated]);
 
   // A sleeping free-tier instance answers after about fifty seconds, so the
   // first read after a quiet period will usually fail. Retrying is the

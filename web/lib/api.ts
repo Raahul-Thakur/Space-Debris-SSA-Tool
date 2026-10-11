@@ -27,6 +27,34 @@ export async function api<T>(path: string, init?: RequestInit): Promise<T> {
   return response.json();
 }
 
+/**
+ * Read something that is the same for every visitor, through the cache.
+ *
+ * These go to this site's own origin rather than to the API, where a route
+ * handler holds the answer at the edge and forwards at most one request per
+ * interval upstream. The difference is not small: the API runs on a shared
+ * tenth of a CPU, and a page load used to send it twenty-three requests.
+ *
+ * Only genuinely public reads belong here. Anything scoped to an account --
+ * jobs, the watch list, billing -- must keep going through `api` with its
+ * bearer token, because a shared cache would otherwise hand one person's
+ * rows to the next visitor. The proxy enforces this with its own allow-list,
+ * so adding a call here is not by itself enough to make it work.
+ *
+ * No `Authorization` header is sent, deliberately: it would vary the answer
+ * without varying the cache key.
+ */
+export async function publicApi<T>(path: string): Promise<T> {
+  const response = await fetch(`/api/public${path}`, {
+    headers: { Accept: "application/json" }
+  });
+  if (!response.ok) {
+    const body = await response.json().catch(() => ({}));
+    throw new Error(body.detail ?? `Request failed (${response.status})`);
+  }
+  return response.json();
+}
+
 export async function streamSse<T>(
   path: string,
   onEvent: (event: T) => void,
