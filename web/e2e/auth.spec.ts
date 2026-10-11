@@ -64,3 +64,10 @@ test("attempting a command sends a signed-out visitor to sign in", async ({
   );
   expect(pending).toBe("screen 25544");
 });
+
+test("the account page is not reachable without an account", async ({ page }) => {
+  // It shows a plan, usage figures and run history. None of that exists for
+  // a visitor, and rendering an empty shell would imply it did.
+  await page.goto("/account");
+  await expect(page).toHaveURL(/\/signin$/);
+});

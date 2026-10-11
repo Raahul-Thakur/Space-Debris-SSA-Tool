@@ -400,6 +400,148 @@ button { color: inherit; }
   color: var(--signal);
 }
 
+/* ==================================================================== account */
+.account-shell {
+  max-width: 760px;
+  margin: 0 auto;
+  padding: 0 24px 72px;
+  min-height: 100vh;
+  overflow-y: auto;
+  background: var(--paper);
+}
+.account-top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 22px 0;
+  border-bottom: 1px solid var(--rule);
+  margin-bottom: 38px;
+}
+.account-back,
+.account-title {
+  font: 500 10px var(--mono);
+  letter-spacing: .16em;
+  text-transform: uppercase;
+  text-decoration: none;
+  color: var(--ink-soft);
+}
+.account-back:hover { color: var(--signal); }
+
+.account-identity h1 {
+  margin: 6px 0 16px;
+  font: 400 34px/1.1 var(--display);
+  word-break: break-all;
+}
+.identity-chips { display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 26px; }
+.role-chip,
+.plan-chip {
+  padding: 4px 9px;
+  border: 1px solid var(--rule-strong);
+  font: 500 9px var(--mono);
+  letter-spacing: .14em;
+  text-transform: uppercase;
+  color: var(--ink-soft);
+}
+.role-chip.admin { border-color: var(--signal); color: var(--signal); }
+
+.identity-facts {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+  gap: 18px;
+  margin: 0 0 34px;
+}
+.identity-facts dt {
+  font: 500 9px var(--mono);
+  letter-spacing: .14em;
+  text-transform: uppercase;
+  color: var(--ink-faint);
+  margin-bottom: 5px;
+}
+.identity-facts dd { margin: 0; font: 500 14px var(--mono); color: var(--ink); }
+
+.account-usage,
+.account-activity,
+.account-sessions { margin-bottom: 40px; }
+.account-usage .section-head,
+.account-activity .section-head,
+.account-sessions .section-head {
+  display: flex;
+  justify-content: space-between;
+  padding-bottom: 9px;
+  margin-bottom: 20px;
+  border-bottom: 1px solid var(--rule);
+  font: 500 10px var(--mono);
+  letter-spacing: .16em;
+  text-transform: uppercase;
+  color: var(--ink-faint);
+}
+
+.meter { margin-bottom: 20px; }
+.meter-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  margin-bottom: 7px;
+}
+.meter-head span { font: 400 13px var(--text); color: var(--ink-soft); }
+.meter-head strong { font: 500 15px var(--mono); }
+.meter-head small { font: 500 9px var(--mono); color: var(--ink-faint); }
+.meter-track { height: 6px; background: var(--paper-band); }
+.meter-track i { display: block; height: 100%; background: var(--ink); }
+/* Warned before the wall, not at it. */
+.meter.near .meter-track i { background: var(--watch); }
+.meter.full .meter-track i { background: var(--signal); }
+.meter-track i.unlimited { background: var(--rule-strong); }
+.meter-note {
+  display: block;
+  margin-top: 5px;
+  font: 500 9px var(--mono);
+  letter-spacing: .1em;
+  text-transform: uppercase;
+  color: var(--ink-faint);
+}
+
+.account-note {
+  margin: 14px 0 0;
+  font: 400 12px/1.6 var(--text);
+  color: var(--ink-faint);
+}
+.account-warning {
+  padding: 12px 14px;
+  margin-bottom: 30px;
+  border-left: 2px solid var(--watch);
+  background: var(--paper-sunk);
+  font: 400 13px/1.55 var(--text);
+}
+
+.run-list { list-style: none; margin: 0; padding: 0; }
+.run-list li {
+  display: grid;
+  grid-template-columns: 10px 1fr auto;
+  gap: 12px;
+  align-items: start;
+  padding: 12px 0;
+  border-bottom: 1px solid var(--rule);
+}
+.run-body code { display: block; font: 500 13px var(--mono); color: var(--ink); }
+.run-body small { display: block; margin-top: 3px; font: 400 12px var(--text); color: var(--ink-faint); }
+.run-list time { font: 500 10px var(--mono); color: var(--ink-faint); white-space: nowrap; }
+
+.account-actions { display: flex; gap: 10px; margin-top: 18px; flex-wrap: wrap; }
+.account-actions button {
+  padding: 11px 17px;
+  border: 1px solid var(--ink);
+  background: transparent;
+  color: var(--ink);
+  cursor: pointer;
+  font: 500 10px var(--mono);
+  letter-spacing: .16em;
+  text-transform: uppercase;
+}
+.account-actions button:hover { background: var(--ink); color: var(--paper); }
+.account-actions button.danger { border-color: var(--signal); color: var(--signal); }
+.account-actions button.danger:hover { background: var(--signal); color: var(--paper); }
+
 /* ======================================================================= rail */
 .rail {
   grid-row: 2;

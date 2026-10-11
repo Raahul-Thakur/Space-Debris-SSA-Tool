@@ -101,9 +101,16 @@ export default function CommandCenter() {
   const [tourRequest, setTourRequest] = useState(deepLink.tour ? 1 : 0);
   const [now, setNow] = useState(() => Date.now());
   const [generatedAt, setGeneratedAt] = useState<string | null>(null);
+  // Whether the last read reached the API. Without this, a failed request and
+  // a genuinely empty catalogue are indistinguishable, and the console told
+  // visitors the platform had no data whenever the API was merely asleep.
+  const [connection, setConnection] = useState<"loading" | "ready" | "unreachable">(
+    "loading"
+  );
 
   const inputRef = useRef<HTMLInputElement>(null);
   const refreshTimer = useRef<ReturnType<typeof setTimeout>>(undefined);
+  const monitoredRef = useRef<MonitoredObject[]>([]);
 
   /** Reinstate a command typed before the visitor was sent to sign in. */
   const restorePendingCommand = useCallback(() => {
@@ -122,25 +129,39 @@ export default function CommandCenter() {
 
   const refresh = useCallback(async () => {
     const [nextJobs, nextMonitored, listed] = await Promise.all([
-      api<Job[]>("/screening-jobs").catch(() => []),
-      api<MonitoredObject[]>("/monitoring").catch(() => []),
+      // null means the request failed; an empty array means the API
+      // answered and there is genuinely nothing. Collapsing the two is what
+      // produced "the public catalogue is empty" while it held 20 objects.
+      api<Job[]>("/screening-jobs").catch(() => null),
+      api<MonitoredObject[]>("/monitoring").catch(() => null),
       // A plain read, not `events list` through the command endpoint: polling
       // must not fill the audit log and the activity feed with its own traffic.
       api<{ events: RiskEvent[]; generated_at: string | null }>(
         "/events/assessed"
-      ).catch(() => ({ events: [], generated_at: null }))
+      ).catch(() => null)
     ]);
-    setJobs(nextJobs);
-    setMonitored(nextMonitored);
+
+    // /monitoring is open to everyone, so its failure means the API is
+    // unreachable rather than that this caller lacks permission.
+    const reachable = nextMonitored !== null;
+    setConnection(reachable ? "ready" : "unreachable");
+
+    // Keep whatever was last known good: a blip should not blank the globe.
+    if (nextJobs !== null) setJobs(nextJobs);
+    const objects = nextMonitored ?? monitoredRef.current;
+    if (nextMonitored !== null) setMonitored(nextMonitored);
     setSelectedNoradId((current) =>
-      current && nextMonitored.some((object) => object.norad_id === current)
+      current && objects.some((object) => object.norad_id === current)
         ? current
-        : nextMonitored[0]?.norad_id ?? null
+        : objects[0]?.norad_id ?? null
     );
-    setRiskEvents(listed.events ?? []);
-    setGeneratedAt(listed.generated_at ?? null);
-    const ids = nextMonitored.length
-      ? nextMonitored.map((object) => object.norad_id)
+    if (listed !== null) {
+      setRiskEvents(listed.events ?? []);
+      setGeneratedAt(listed.generated_at ?? null);
+    }
+    if (!reachable) return;
+    const ids = objects.length
+      ? objects.map((object) => object.norad_id)
       : ["25544"];
     const paths = ids.map((id) =>
       api<Trajectory>(`/objects/${id}/trajectory?window_hours=3&step_sec=180`).catch(
@@ -308,6 +329,20 @@ export default function CommandCenter() {
       controller.abort();
     };
   }, [authenticated, paletteOpen, command]);
+
+  useEffect(() => {
+    monitoredRef.current = monitored;
+  }, [monitored]);
+
+  // A sleeping free-tier instance answers after about fifty seconds, so the
+  // first read after a quiet period will usually fail. Retrying is the
+  // difference between a visitor seeing the platform and a visitor seeing
+  // nothing and leaving.
+  useEffect(() => {
+    if (connection !== "unreachable") return;
+    const timer = setTimeout(() => void refresh(), 6000);
+    return () => clearTimeout(timer);
+  }, [connection, refresh, now]);
 
   const activeJobId = activeJob?.id;
   useEffect(() => {
@@ -525,10 +560,12 @@ export default function CommandCenter() {
         </div>
         <div className="system-state">
           <i /> CATALOG LINKED <span>·</span> TEME / SGP4 <span>·</span>
-          <em className={`stream-state ${feed.status}`}>
-            {feed.status === "idle"
-              ? "PUBLIC VIEW"
-              : `STREAM ${feed.status.toUpperCase()}`}
+          <em className={`stream-state ${connection === "unreachable" ? "offline" : feed.status}`}>
+            {connection === "unreachable"
+              ? "WAKING THE API…"
+              : feed.status === "idle"
+                ? "PUBLIC VIEW"
+                : `STREAM ${feed.status.toUpperCase()}`}
           </em>
         </div>
         <div className="topbar-actions">
@@ -548,6 +585,11 @@ export default function CommandCenter() {
           <Link className="topbar-link" href="/docs" data-tour="docs-link">
             DOCS
           </Link>
+          {authenticated && (
+            <Link className="topbar-link" href="/account">
+              ACCOUNT
+            </Link>
+          )}
           {authenticated ? (
             <button
               type="button"
@@ -630,7 +672,13 @@ export default function CommandCenter() {
               ))
             ) : (
               <p className="empty">
-                {authenticated ? (
+                {connection !== "ready" ? (
+                  <>
+                    Waking the API. It sleeps after a quiet spell on the free
+                    tier and takes up to a minute to answer; this will fill in
+                    by itself.
+                  </>
+                ) : authenticated ? (
                   <>
                     No monitored elements. Run <code>monitor seed-known</code> to load a
                     starter set, or <code>monitor add 25544</code> for one object.
@@ -843,7 +891,9 @@ export default function CommandCenter() {
           </div>
         ) : (
           <p className="empty">
-            {authenticated ? (
+            {connection !== "ready" ? (
+              <>Waking the API — conjunctions will appear once it answers.</>
+            ) : authenticated ? (
               <>
                 No assessed conjunctions yet. Run <code>screen 25544</code> to produce
                 some.

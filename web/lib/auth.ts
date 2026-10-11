@@ -1,7 +1,31 @@
 import { createClient, type Session, type SupabaseClient } from "@supabase/supabase-js";
 import { API_BASE, setAccessToken } from "./api";
 
-export type AuthState = { session: Session | null; development: boolean };
+export type AuthState = {
+  session: Session | null;
+  development: boolean;
+  /** The application role the API will enforce for this caller. */
+  role: string;
+};
+
+/**
+ * Read the role claim out of a token, for display only.
+ *
+ * The server verifies the signature and decides what the caller may do; this
+ * is purely so the account page can state the role without a second request.
+ * Anything unreadable falls back to the least privileged value, matching how
+ * the API treats a missing or unrecognised claim.
+ */
+function roleFromToken(token: string): string {
+  try {
+    const payload = token.split(".")[1];
+    const json = atob(payload.replace(/-/g, "+").replace(/_/g, "/"));
+    const claims = JSON.parse(json) as { app_metadata?: { role?: string } };
+    return claims.app_metadata?.role ?? "viewer";
+  } catch {
+    return "viewer";
+  }
+}
 let supabase: SupabaseClient | null = null;
 
 /**
@@ -66,7 +90,7 @@ function scrubAuthParamsFromUrl() {
 export async function initializeAuth(): Promise<AuthState> {
   if (process.env.NEXT_PUBLIC_AUTH_TEST_MODE === "unauthenticated") {
     setAccessToken(null);
-    return { session: null, development: false };
+    return { session: null, development: false, role: "viewer" };
   }
   const client = getSupabase();
   if (client) {
@@ -76,13 +100,19 @@ export async function initializeAuth(): Promise<AuthState> {
     scrubAuthParamsFromUrl();
     if (error) throw error;
     setAccessToken(data.session?.access_token ?? null);
-    return { session: data.session, development: false };
+    return {
+      session: data.session,
+      development: false,
+      role: String(data.session?.user?.app_metadata?.role ?? "viewer"),
+    };
   }
   const response = await fetch(`${API_BASE}/auth/development-token`, { method: "POST" });
-  if (!response.ok) return { session: null, development: false };
+  if (!response.ok) return { session: null, development: false, role: "viewer" };
   const body = (await response.json()) as { access_token: string };
   setAccessToken(body.access_token);
-  return { session: null, development: true };
+  // The development issuer mints an admin token; reporting "viewer" here
+  // would contradict what the API actually permits.
+  return { session: null, development: true, role: roleFromToken(body.access_token) };
 }
 
 export async function signInWithEmail(email: string) {
