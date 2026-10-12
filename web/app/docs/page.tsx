@@ -399,6 +399,7 @@ export default function DocsPage() {
           <Link href="/">
             Back to the console <span aria-hidden="true">-&gt;</span>
           </Link>
+          <Link href="/privacy">Privacy</Link>
           <p>
             Educational screening platform. Outputs are illustrative and must not be used
             for operational maneuver decisions.

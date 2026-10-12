@@ -262,6 +262,8 @@ export default function SignIn() {
 
         <p className="signin-back">
           <Link href="/">← Back to the public picture</Link>
+          {" · "}
+          <Link href="/privacy">Privacy</Link>
         </p>
         <p className="science-notice">
           Educational screening platform. Outputs are illustrative and must not be used
