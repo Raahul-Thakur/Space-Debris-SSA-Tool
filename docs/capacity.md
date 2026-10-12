@@ -138,11 +138,19 @@ will never be satisfied.
 not stop the instance after fifteen minutes of quiet, and so Supabase does not
 pause the project after seven days without a query.
 
-It runs for eighteen hours a day rather than twenty-four, and the arithmetic is
-the reason. The free allowance is 750 instance-hours a month **shared across
-every free service on the account**. Continuous uptime costs 744 of them in a
-31-day month — six hours of headroom for everything, which one overlapping
-deploy can exhaust. Running out suspends the service for the rest of the month.
+It runs for twelve hours a day rather than twenty-four, and the arithmetic is
+the reason. The 750 monthly instance-hours belong to the **account**, not the
+service, and are shared by every free service on it — this account runs four.
+Continuous uptime for one costs 744 hours in a 31-day month, leaving nothing
+for the other three. Running out suspends the service for the rest of the
+month rather than slowing it down.
+
+Twelve hours (about 370) is defensible rather than stingy because public reads
+no longer need the instance at all. They are served from the edge, which holds
+a usable copy through `stale-while-revalidate` even while the API sleeps. A
+cold start now delays a signed-in screening run, not the picture a first-time
+visitor sees. Check the Render dashboard after a week and widen if the hours
+are there.
 
 Set the repository variable `SDEBRIS_API_URL` (Settings → Secrets and variables
 → Actions → **Variables**, not Secrets — it is a public URL) or the workflow
