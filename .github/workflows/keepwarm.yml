@@ -4,23 +4,26 @@ name: Keep the API warm
 # the next visitor then waits the better part of a minute for it to boot. This
 # pings it often enough that it never gets there.
 #
-# Not around the clock, though, and the arithmetic is the reason. The free
-# allowance is 750 instance-hours a month shared across every free service on
-# the account. Staying up continuously costs 744 of them in a 31-day month,
-# which leaves six hours of headroom for the whole account -- less than one
-# deploy's worth of overlap, and nothing at all if a second free service is
-# ever added. Running out does not degrade the service, it suspends it for the
-# remainder of the month.
+# Not around the clock, though, and the arithmetic is the reason. The 750
+# monthly instance-hours are allotted to the *account* and shared by every
+# free service on it -- this account runs four. Continuous uptime for one of
+# them costs 744 hours in a 31-day month, leaving nothing for the other three.
+# Running out does not slow the service down, it suspends it for the rest of
+# the month, which is the worst way for a public launch to fail.
 #
-# So the window below is eighteen hours, 10:00-03:59 UTC, costing about 560
-# hours and leaving real slack. It covers the Indian evening, the European
-# working day and evening, and the Americas from morning to night. The six
-# hours it omits are the small hours almost everywhere. A visitor arriving
-# then waits for a cold start, which the console already handles honestly
-# rather than reporting an empty catalogue.
+# So the window below is twelve hours, 10:00-21:59 UTC, costing about 370 and
+# leaving roughly half the allowance for everything else. It covers the Indian
+# afternoon and evening, the European day and evening, and the Americas from
+# morning to early evening.
 #
-# Widen it to `*/10 * * * *` if the account is on a paid plan or has hours to
-# spare; narrow it if anything else free is running alongside.
+# Twelve is defensible rather than stingy because public reads no longer need
+# this instance at all: they are served from the edge cache, which holds a
+# usable copy through `stale-while-revalidate` even while the API is asleep.
+# What a cold start now delays is a signed-in screening run, not the orbital
+# picture a first-time visitor sees.
+#
+# Check Render's dashboard after a week. Widen towards `*/10 * * * *` if the
+# hours are there; narrow it if the other services are busier than expected.
 #
 # The ping goes to /ready rather than /health because /ready runs a trivial
 # query. That keeps the Supabase project from pausing too: its free tier pauses
@@ -40,8 +43,8 @@ name: Keep the API warm
 
 on:
   schedule:
-    # Every ten minutes, 10:00-03:59 UTC. See the note above before widening.
-    - cron: "*/10 10-23,0-3 * * *"
+    # Every ten minutes, 10:00-21:59 UTC. See the note above before widening.
+    - cron: "*/10 10-21 * * *"
   workflow_dispatch:
 
 permissions: {}
