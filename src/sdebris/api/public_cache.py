@@ -34,13 +34,13 @@ from typing import Any
 
 from fastapi.encoders import jsonable_encoder
 
-__all__ = ["PublicCache", "CacheStats"]
+__all__ = ["CacheStats", "PublicCache"]
 
 
 class CacheStats:
     """Hit and miss counts, reported on ``/health`` for tuning."""
 
-    __slots__ = ("hits", "misses", "evictions")
+    __slots__ = ("evictions", "hits", "misses")
 
     def __init__(self) -> None:
         self.hits = 0

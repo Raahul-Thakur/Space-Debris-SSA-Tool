@@ -42,7 +42,12 @@ dev = [
   "pytest>=8.0",
   "pytest-cov>=4.1",
   "pre-commit>=3.5",
-  "ruff>=0.4",
+  # Pinned to a minor series rather than left open. An unbounded linter
+  # means CI can start failing on a commit that changed nothing, because
+  # a new release added a rule -- which is exactly what happened: 0.17
+  # introduced RUF022/RUF023 and broke a green build retrospectively.
+  # A developer on an older ruff also could not reproduce it locally.
+  "ruff>=0.17,<0.18",
   "httpx>=0.27,<1",
 ]
 docs = ["mkdocs>=1.5", "mkdocs-material>=9.5"]

@@ -71,14 +71,38 @@ jobs:
           fi
           python - <<'PY'
           import os
+          import re
+          import sys
+
           from sqlalchemy import create_engine, text
-          engine = create_engine(os.environ["SDEBRIS_DATABASE_URL"])
-          with engine.connect() as connection:
-              version = connection.execute(
-                  text("SELECT version_num FROM alembic_version")
-              ).scalar()
-          print(f"connected; schema at {version}")
-          engine.dispose()
+
+          url = os.environ["SDEBRIS_DATABASE_URL"]
+          # Everything printed below is derived from the URL with the
+          # credentials stripped. This repository is public, so its workflow
+          # logs are too, and an unhandled driver error is entitled to put
+          # whatever it likes -- including the connection string -- in them.
+          host = re.sub(r".*@", "", url).split("/")[0]
+          driver = url.split("://")[0]
+
+          try:
+              engine = create_engine(url, connect_args={"connect_timeout": 20})
+              with engine.connect() as connection:
+                  version = connection.execute(
+                      text("SELECT version_num FROM alembic_version")
+                  ).scalar()
+              print(f"connected to {host}; schema at {version}")
+              engine.dispose()
+          except Exception as exc:
+              print(f"::error::Could not reach {host} as {driver}: {type(exc).__name__}")
+              print("The database itself may well be fine -- check the secret first.")
+              print("  * The secret must be the whole URL, including the")
+              print("    postgresql+psycopg:// scheme and the ?sslmode=require.")
+              print("  * A password containing @ : / or ? must be percent-encoded,")
+              print("    or it terminates the URL early and the host parsed above")
+              print("    will look wrong.")
+              print("  * Rotating the database password invalidates this secret.")
+              print(f"  * Host as parsed from the secret: {host}")
+              sys.exit(1)
           PY
 
       - name: Screen each target and persist
