@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import { useRouter } from "next/navigation";
+import ThemeToggle from "@/components/ThemeToggle";
 import { FormEvent, ReactNode, useEffect, useRef, useState } from "react";
 import {
   requestEmailCode,
@@ -150,9 +151,12 @@ export default function SignIn() {
   return (
     <main className="signin-shell">
       <section className="signin-panel">
-        <div className="brand">
-          <span className="brand-mark">A</span>
-          <span>ASTRA / SSA</span>
+        <div className="signin-head">
+          <div className="brand">
+            <span className="brand-mark">A</span>
+            <span>ASTRA / SSA</span>
+          </div>
+          <ThemeToggle />
         </div>
         <p className="eyebrow">VERIFIED ACCESS</p>
         <h1>

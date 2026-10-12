@@ -13,6 +13,7 @@ import {
   useState,
   useSyncExternalStore
 } from "react";
+import ThemeToggle from "@/components/ThemeToggle";
 import { api, publicApi, streamSse } from "@/lib/api";
 import { getSupabase, initializeAuth, signOut } from "@/lib/auth";
 import {
@@ -599,6 +600,7 @@ export default function CommandCenter() {
             </span>
           )}
           <span className="utc-clock">{utc} UTC</span>
+          <ThemeToggle />
           <button
             type="button"
             className="topbar-link"

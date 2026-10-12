@@ -26,6 +26,11 @@
   --rule: #cfc9ba;
   --rule-strong: #b3ac9a;
 
+  /* The inverted slab: a panel that contrasts with the page, whichever
+     way round the page happens to be. */
+  --slab: #16150f;
+  --slab-rule: #2b2d2f;
+
   /* The dark plate the globe is printed on */
   --plate: #101214;
   --plate-sunk: #0a0c0d;
@@ -43,12 +48,72 @@
   --mono: "IBM Plex Mono", ui-monospace, monospace;
   --text: "Archivo", system-ui, sans-serif;
   --display: "Instrument Serif", Georgia, serif;
+
+  /* Tells the browser to render form controls, scrollbars and the
+     canvas backdrop to match. Without it a dark page keeps light
+     scrollbars and a white flash between navigations. */
+  color-scheme: light;
+}
+
+/* ---------------------------------------------------------------- dark
+   The same two declaration blocks appear twice on purpose, because a
+   media query and an attribute selector cannot be combined into one rule.
+   `light-dark()` would avoid the repetition, but a browser that does not
+   support it would discard every token and render an unreadable page,
+   which is a far worse failure than duplication. A test asserts the two
+   blocks stay identical.
+
+   The palette is the printed sheet photographed at night rather than a
+   new design: the same paper/ink relationship, inverted, with the signal
+   lifted because vermillion on near-black is unreadable at 1.5:1. */
+@media (prefers-color-scheme: dark) {
+  /* The visitor has expressed no preference here, so follow the system. */
+  :root:not([data-theme="light"]) {
+    --paper: #14161a;
+    --paper-sunk: #0e1013;
+    --paper-band: #1d2025;
+    --ink: #e8e5dd;
+    --ink-soft: #a7a296;
+    --ink-faint: #837e75;
+    --rule: #2b2f35;
+    --rule-strong: #3e434a;
+    --slab: #1d2025;
+    --slab-rule: #31363d;
+    --signal: #f2563a;
+    --signal-deep: #ff7a5e;
+    --watch: #d9a441;
+    --nominal: #5fae8c;
+    color-scheme: dark;
+  }
+}
+/* An explicit choice, which outranks the system in both directions. */
+:root[data-theme="dark"] {
+    --paper: #14161a;
+    --paper-sunk: #0e1013;
+    --paper-band: #1d2025;
+    --ink: #e8e5dd;
+    --ink-soft: #a7a296;
+    --ink-faint: #837e75;
+    --rule: #2b2f35;
+    --rule-strong: #3e434a;
+    --slab: #1d2025;
+    --slab-rule: #31363d;
+    --signal: #f2563a;
+    --signal-deep: #ff7a5e;
+    --watch: #d9a441;
+    --nominal: #5fae8c;
+    color-scheme: dark;
 }
 
 * { box-sizing: border-box; }
 html, body { margin: 0; min-height: 100%; background: var(--paper); color: var(--ink); }
-body { font-family: var(--text); overflow: hidden; -webkit-font-smoothing: antialiased; }
-body:has(.docs-shell) { overflow: auto; }
+body { font-family: var(--text); overflow: auto; -webkit-font-smoothing: antialiased; }
+/* The console alone is a fixed, viewport-sized instrument panel that manages
+   its own internal scrolling. Every other page is an ordinary document and
+   must be allowed to run past the fold -- clipping was the default here
+   before, with the documentation carved out as an exception, which meant
+   the sign-in page lost everything below the fold on a short window. */
+body:has(.shell) { overflow: hidden; }
 button, input { font: inherit; border-radius: 0; }
 button { color: inherit; }
 ::selection { background: var(--signal); color: var(--paper); }
@@ -235,11 +300,62 @@ button { color: inherit; }
    decoration on the sign-in screen. */
 .signin-orbit {
   position: relative;
-  background: var(--ink);
+  background: var(--slab);
   background-image:
-    repeating-linear-gradient(to bottom, var(--plate-rule) 0 1px, transparent 1px 88px);
+    repeating-linear-gradient(to bottom, var(--slab-rule) 0 1px, transparent 1px 88px);
 }
 .signin-orbit i { display: none; }
+
+/* ------------------------------------------------------------ theme toggle
+   One control, three surroundings: the paper panels of sign-in and the
+   account page, and the two ink-coloured bars. Scoped descendant selectors
+   rather than extra class names on the element, so the variants cannot be
+   defeated by the order the rules happen to appear in. */
+.theme-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  padding: 7px 11px;
+  border: 1px solid var(--rule-strong);
+  background: transparent;
+  color: var(--ink-soft);
+  font: 500 9px var(--mono);
+  letter-spacing: .16em;
+  cursor: pointer;
+}
+.theme-toggle:hover { border-color: var(--ink); color: var(--ink); }
+.theme-toggle span[aria-hidden] { font-size: 12px; line-height: 1; }
+
+/* On the ink bars the control is a cell in the bar, not a button on a page. */
+.topbar .theme-toggle,
+.docs-topbar .theme-toggle {
+  align-self: stretch;
+  gap: 8px;
+  padding: 0 16px;
+  border: 0;
+  color: var(--plate-soft);
+  font-size: 10px;
+  letter-spacing: .14em;
+}
+.topbar .theme-toggle:hover,
+.docs-topbar .theme-toggle:hover { color: var(--plate-ink); }
+
+/* The word is redundant beside the glyph once space is tight. */
+@media (max-width: 860px) {
+  .topbar .theme-toggle .theme-toggle-label,
+  .docs-topbar .theme-toggle .theme-toggle-label { display: none; }
+}
+
+/* Sign-in puts the brand and the toggle on one line, so the control is
+   reachable before a visitor has decided anything. */
+.signin-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 26px 0;
+}
+.signin-shell .signin-head .brand { align-self: center; padding: 0; }
 
 /* ====================================================================== shell */
 .shell {
@@ -1613,7 +1729,11 @@ button { color: inherit; }
   .utc-clock { display: none; }
 }
 @media (max-width: 720px) {
-  body { overflow: auto; }
+  /* Must match the specificity of `body:has(.shell)` above, not merely come
+     after it: at this width the console stops being a fixed instrument panel
+     and becomes an ordinary scrolling document, so it needs the clip lifted.
+     A plain `body` selector here would silently lose and clip the phone. */
+  body:has(.shell) { overflow: auto; }
   .shell { display: block; height: auto; min-height: 100vh; padding-top: 48px; padding-bottom: 76px; }
   .topbar { position: fixed; inset: 0 0 auto; display: flex; height: 48px; justify-content: space-between; }
   .topbar .brand { border-right: 0; }

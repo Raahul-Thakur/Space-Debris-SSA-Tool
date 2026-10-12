@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useState } from "react";
+import ThemeToggle from "@/components/ThemeToggle";
 import { api } from "@/lib/api";
 import { initializeAuth, signOut, signOutEverywhere } from "@/lib/auth";
 import type { Job } from "@/lib/types";
@@ -131,6 +132,7 @@ export default function AccountPanel() {
           ← CONSOLE
         </Link>
         <span className="account-title">ACCOUNT</span>
+        <ThemeToggle />
       </header>
 
       <section className="account-identity">

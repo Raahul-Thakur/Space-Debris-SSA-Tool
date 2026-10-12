@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import Link from "next/link";
 import DocsSamples from "@/components/DocsSamples";
 import RestartTourButton from "@/components/RestartTourButton";
+import ThemeToggle from "@/components/ThemeToggle";
 
 export const metadata: Metadata = {
   title: "Documentation · Astra / SSA",
@@ -142,6 +143,7 @@ export default function DocsPage() {
           <span>ASTRA / SSA</span>
         </Link>
         <nav>
+          <ThemeToggle />
           <RestartTourButton />
           <Link href="/" className="docs-back">
             OPEN CONSOLE <span aria-hidden="true">-&gt;</span>
