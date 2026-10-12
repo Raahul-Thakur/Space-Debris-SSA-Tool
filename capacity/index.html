@@ -1,0 +1,987 @@
+
+<!doctype html>
+<html lang="en" class="no-js">
+  <head>
+    
+      <meta charset="utf-8">
+      <meta name="viewport" content="width=device-width,initial-scale=1">
+      
+        <meta name="description" content="Conjunction screening and collision-avoidance awareness from live TLE data.">
+      
+      
+      
+        <link rel="canonical" href="https://raahul-thakur.github.io/Space-Debris-SSA-Tool/capacity/">
+      
+      
+        <link rel="prev" href="../deployment-free-tier/">
+      
+      
+      
+        
+      
+      
+      <link rel="icon" href="../assets/images/favicon.png">
+      <meta name="generator" content="mkdocs-1.6.1, mkdocs-material-9.7.7">
+    
+    
+      
+        <title>Capacity and sign-in - Space Debris SSA Tool</title>
+      
+    
+    
+      <link rel="stylesheet" href="../assets/stylesheets/main.ec1eaa64.min.css">
+      
+        
+        <link rel="stylesheet" href="../assets/stylesheets/palette.ab4e12ef.min.css">
+      
+      
+
+
+    
+    
+      
+    
+    
+      
+        
+        
+        <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+        <link rel="stylesheet" href="https://fonts.googleapis.com/css?family=Roboto:300,300i,400,400i,700,700i%7CRoboto+Mono:400,400i,700,700i&display=fallback">
+        <style>:root{--md-text-font:"Roboto";--md-code-font:"Roboto Mono"}</style>
+      
+    
+    
+    <script>__md_scope=new URL("..",location),__md_hash=e=>[...e].reduce(((e,_)=>(e<<5)-e+_.charCodeAt(0)),0),__md_get=(e,_=localStorage,t=__md_scope)=>JSON.parse(_.getItem(t.pathname+"."+e)),__md_set=(e,_,t=localStorage,a=__md_scope)=>{try{t.setItem(a.pathname+"."+e,JSON.stringify(_))}catch(e){}}</script>
+    
+      
+
+    
+    
+  </head>
+  
+  
+    
+    
+      
+    
+    
+    
+    
+    <body dir="ltr" data-md-color-scheme="slate" data-md-color-primary="indigo" data-md-color-accent="light-blue">
+  
+    
+    <input class="md-toggle" data-md-toggle="drawer" type="checkbox" id="__drawer" autocomplete="off">
+    <input class="md-toggle" data-md-toggle="search" type="checkbox" id="__search" autocomplete="off">
+    <label class="md-overlay" for="__drawer"></label>
+    <div data-md-component="skip">
+      
+        
+        <a href="#serving-thousands-of-readers-for-nothing" class="md-skip">
+          Skip to content
+        </a>
+      
+    </div>
+    <div data-md-component="announce">
+      
+    </div>
+    
+    
+      
+
+  
+
+<header class="md-header md-header--shadow" data-md-component="header">
+  <nav class="md-header__inner md-grid" aria-label="Header">
+    <a href=".." title="Space Debris SSA Tool" class="md-header__button md-logo" aria-label="Space Debris SSA Tool" data-md-component="logo">
+      
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a3 3 0 0 0 3-3 3 3 0 0 0-3-3 3 3 0 0 0-3 3 3 3 0 0 0 3 3m0 3.54C9.64 9.35 6.5 8 3 8v11c3.5 0 6.64 1.35 9 3.54 2.36-2.19 5.5-3.54 9-3.54V8c-3.5 0-6.64 1.35-9 3.54"/></svg>
+
+    </a>
+    <label class="md-header__button md-icon" for="__drawer">
+      
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M3 6h18v2H3zm0 5h18v2H3zm0 5h18v2H3z"/></svg>
+    </label>
+    <div class="md-header__title" data-md-component="header-title">
+      <div class="md-header__ellipsis">
+        <div class="md-header__topic">
+          <span class="md-ellipsis">
+            Space Debris SSA Tool
+          </span>
+        </div>
+        <div class="md-header__topic" data-md-component="header-topic">
+          <span class="md-ellipsis">
+            
+              Capacity and sign-in
+            
+          </span>
+        </div>
+      </div>
+    </div>
+    
+      
+        <form class="md-header__option" data-md-component="palette">
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="" data-md-color-scheme="slate" data-md-color-primary="indigo" data-md-color-accent="light-blue"  aria-hidden="true"  type="radio" name="__palette" id="__palette_0">
+    
+  
+</form>
+      
+    
+    
+      <script>var palette=__md_get("__palette");if(palette&&palette.color){if("(prefers-color-scheme)"===palette.color.media){var media=matchMedia("(prefers-color-scheme: light)"),input=document.querySelector(media.matches?"[data-md-color-media='(prefers-color-scheme: light)']":"[data-md-color-media='(prefers-color-scheme: dark)']");palette.color.media=input.getAttribute("data-md-color-media"),palette.color.scheme=input.getAttribute("data-md-color-scheme"),palette.color.primary=input.getAttribute("data-md-color-primary"),palette.color.accent=input.getAttribute("data-md-color-accent")}for(var[key,value]of Object.entries(palette.color))document.body.setAttribute("data-md-color-"+key,value)}</script>
+    
+    
+    
+      
+      
+        <label class="md-header__button md-icon" for="__search">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        </label>
+        <div class="md-search" data-md-component="search" role="dialog">
+  <label class="md-search__overlay" for="__search"></label>
+  <div class="md-search__inner" role="search">
+    <form class="md-search__form" name="search">
+      <input type="text" class="md-search__input" name="query" aria-label="Search" placeholder="Search" autocapitalize="off" autocorrect="off" autocomplete="off" spellcheck="false" data-md-component="search-query" required>
+      <label class="md-search__icon md-icon" for="__search">
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M20 11v2H8l5.5 5.5-1.42 1.42L4.16 12l7.92-7.92L13.5 5.5 8 11z"/></svg>
+      </label>
+      <nav class="md-search__options" aria-label="Search">
+        
+        <button type="reset" class="md-search__icon md-icon" title="Clear" aria-label="Clear" tabindex="-1">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M19 6.41 17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/></svg>
+        </button>
+      </nav>
+      
+    </form>
+    <div class="md-search__output">
+      <div class="md-search__scrollwrap" tabindex="0" data-md-scrollfix>
+        <div class="md-search-result" data-md-component="search-result">
+          <div class="md-search-result__meta">
+            Initializing search
+          </div>
+          <ol class="md-search-result__list" role="presentation"></ol>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+      
+    
+    
+      <div class="md-header__source">
+        <a href="https://github.com/Raahul-Thakur/Space-Debris-SSA-Tool" title="Go to repository" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M439.6 236.1 244 40.5c-5.4-5.5-12.8-8.5-20.4-8.5s-15 3-20.4 8.4L162.5 81l51.5 51.5c27.1-9.1 52.7 16.8 43.4 43.7l49.7 49.7c34.2-11.8 61.2 31 35.5 56.7-26.5 26.5-70.2-2.9-56-37.3L240.3 199v121.9c25.3 12.5 22.3 41.8 9.1 55-6.4 6.4-15.2 10.1-24.3 10.1s-17.8-3.6-24.3-10.1c-17.6-17.6-11.1-46.9 11.2-56v-123c-20.8-8.5-24.6-30.7-18.6-45L142.6 101 8.5 235.1C3 240.6 0 247.9 0 255.5s3 15 8.5 20.4l195.6 195.7c5.4 5.4 12.7 8.4 20.4 8.4s15-3 20.4-8.4l194.7-194.7c5.4-5.4 8.4-12.8 8.4-20.4s-3-15-8.4-20.4"/></svg>
+  </div>
+  <div class="md-source__repository">
+    Raahul-Thakur/Space-Debris-SSA-Tool
+  </div>
+</a>
+      </div>
+    
+  </nav>
+  
+</header>
+    
+    <div class="md-container" data-md-component="container">
+      
+      
+        
+          
+        
+      
+      <main class="md-main" data-md-component="main">
+        <div class="md-main__inner md-grid">
+          
+            
+              
+              <div class="md-sidebar md-sidebar--primary" data-md-component="sidebar" data-md-type="navigation" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+
+
+<nav class="md-nav md-nav--primary" aria-label="Navigation" data-md-level="0">
+  <label class="md-nav__title" for="__drawer">
+    <a href=".." title="Space Debris SSA Tool" class="md-nav__button md-logo" aria-label="Space Debris SSA Tool" data-md-component="logo">
+      
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a3 3 0 0 0 3-3 3 3 0 0 0-3-3 3 3 0 0 0-3 3 3 3 0 0 0 3 3m0 3.54C9.64 9.35 6.5 8 3 8v11c3.5 0 6.64 1.35 9 3.54 2.36-2.19 5.5-3.54 9-3.54V8c-3.5 0-6.64 1.35-9 3.54"/></svg>
+
+    </a>
+    Space Debris SSA Tool
+  </label>
+  
+    <div class="md-nav__source">
+      <a href="https://github.com/Raahul-Thakur/Space-Debris-SSA-Tool" title="Go to repository" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M439.6 236.1 244 40.5c-5.4-5.5-12.8-8.5-20.4-8.5s-15 3-20.4 8.4L162.5 81l51.5 51.5c27.1-9.1 52.7 16.8 43.4 43.7l49.7 49.7c34.2-11.8 61.2 31 35.5 56.7-26.5 26.5-70.2-2.9-56-37.3L240.3 199v121.9c25.3 12.5 22.3 41.8 9.1 55-6.4 6.4-15.2 10.1-24.3 10.1s-17.8-3.6-24.3-10.1c-17.6-17.6-11.1-46.9 11.2-56v-123c-20.8-8.5-24.6-30.7-18.6-45L142.6 101 8.5 235.1C3 240.6 0 247.9 0 255.5s3 15 8.5 20.4l195.6 195.7c5.4 5.4 12.7 8.4 20.4 8.4s15-3 20.4-8.4l194.7-194.7c5.4-5.4 8.4-12.8 8.4-20.4s-3-15-8.4-20.4"/></svg>
+  </div>
+  <div class="md-source__repository">
+    Raahul-Thakur/Space-Debris-SSA-Tool
+  </div>
+</a>
+    </div>
+  
+  <ul class="md-nav__list" data-md-scrollfix>
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href=".." class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Home
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../usage/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Usage
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../architecture/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Architecture
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../ontology/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Operational ontology
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../methodology/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Methodology
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../deployment-free-tier/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Free-tier deployment
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+    
+  
+  
+  
+    <li class="md-nav__item md-nav__item--active">
+      
+      <input class="md-nav__toggle md-toggle" type="checkbox" id="__toc">
+      
+      
+        
+      
+      
+        <label class="md-nav__link md-nav__link--active" for="__toc">
+          
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Capacity and sign-in
+  
+
+    
+  </span>
+  
+  
+
+          <span class="md-nav__icon md-icon"></span>
+        </label>
+      
+      <a href="./" class="md-nav__link md-nav__link--active">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Capacity and sign-in
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+      
+        
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#what-the-limits-actually-were" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        What the limits actually were
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#reads-cached-not-recomputed" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Reads: cached, not recomputed
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Reads: cached, not recomputed">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#the-rule-for-adding-a-route-to-the-cache" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        The rule for adding a route to the cache
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#the-shared-secret" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        The shared secret
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#sign-in-avoid-email-where-possible" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Sign-in: avoid email where possible
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Sign-in: avoid email where possible">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#enabling-the-providers" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Enabling the providers
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#making-email-work-properly" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Making email work properly
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#keeping-the-instance-awake" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Keeping the instance awake
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#what-breaks-next" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        What breaks next
+      
+    </span>
+  </a>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+      
+    </li>
+  
+
+    
+  </ul>
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+            
+              
+              <div class="md-sidebar md-sidebar--secondary" data-md-component="sidebar" data-md-type="toc" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#what-the-limits-actually-were" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        What the limits actually were
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#reads-cached-not-recomputed" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Reads: cached, not recomputed
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Reads: cached, not recomputed">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#the-rule-for-adding-a-route-to-the-cache" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        The rule for adding a route to the cache
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#the-shared-secret" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        The shared secret
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#sign-in-avoid-email-where-possible" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Sign-in: avoid email where possible
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Sign-in: avoid email where possible">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#enabling-the-providers" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Enabling the providers
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#making-email-work-properly" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Making email work properly
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#keeping-the-instance-awake" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Keeping the instance awake
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#what-breaks-next" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        What breaks next
+      
+    </span>
+  </a>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+          
+          
+            <div class="md-content" data-md-component="content">
+              
+              <article class="md-content__inner md-typeset">
+                
+                  
+
+
+  
+  
+
+
+<h1 id="serving-thousands-of-readers-for-nothing">Serving thousands of readers for nothing</h1>
+<p>This platform is open source and runs entirely on free tiers. That is a design
+constraint, not an accident, and two things follow from it that are worth
+writing down, because both were discovered by measurement rather than guessed
+at, and both are easy to undo by accident.</p>
+<p>The short version: <strong>reads are cached so they never reach the API, and sign-in
+avoids email wherever possible.</strong> Everything below is why.</p>
+<h2 id="what-the-limits-actually-were">What the limits actually were</h2>
+<p>Measured against the deployed stack, before any of this:</p>
+<table>
+<thead>
+<tr>
+<th></th>
+<th>Figure</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Requests the API answered per second</td>
+<td>12.5</td>
+</tr>
+<tr>
+<td>Requests one page load sent</td>
+<td>23</td>
+</tr>
+<tr>
+<td>Page loads per minute, site-wide</td>
+<td>~30</td>
+</tr>
+<tr>
+<td>Sign-ups possible per hour</td>
+<td>2–4</td>
+</tr>
+</tbody>
+</table>
+<p>Thirty page loads a minute is not thousands of users. Neither is four
+sign-ups an hour. They have separate causes and separate fixes.</p>
+<h2 id="reads-cached-not-recomputed">Reads: cached, not recomputed</h2>
+<p>Nothing an anonymous visitor sees is specific to them. The catalogue, the
+conjunction list and the trajectories are platform-owned rows, rewritten every
+six hours by the scheduled screening. Computing them per visitor was pure
+waste — and expensive waste, because a trajectory runs SGP4 across a time grid
+and the API has a tenth of a CPU.</p>
+<p>Three changes, in increasing order of effect:</p>
+<ol>
+<li><strong>Batching.</strong> <code>GET /trajectories?norad_ids=…</code> returns every track in one
+   request. The console asked for one per object, which on a twenty-object
+   catalogue was twenty round trips before the first paint finished.</li>
+<li><strong>An in-process cache</strong> (<code>sdebris/api/public_cache.py</code>) holds the finished
+   JSON for five minutes. A repeat request is a dictionary lookup, not a
+   propagation.</li>
+<li><strong>An edge cache</strong> (<code>web/app/api/public/[...path]/route.ts</code>). Public reads go
+   to the site's own origin, where a route handler holds the answer and
+   forwards at most one request per interval upstream. This is the one that
+   matters: a response served from the edge never touches the API at all, so
+   it stays fast while the instance is asleep and costs no instance hours.</li>
+</ol>
+<p>Anonymous page loads now send <strong>one</strong> uncached request to the API, down from
+twenty-three.</p>
+<h3 id="the-rule-for-adding-a-route-to-the-cache">The rule for adding a route to the cache</h3>
+<p>The allow-list in the route handler is a security boundary, not an
+optimisation. That route runs with no bearer token and its answers go into a
+cache every visitor shares, so a path that reaches it by mistake is both an
+authorisation bypass and a way to serve one account's rows to the next person.</p>
+<blockquote>
+<p><strong>Only add a path that takes no principal.</strong> If the handler's signature
+mentions <code>PrincipalDep</code> or <code>OptionalPrincipalDep</code>, it does not belong here.</p>
+</blockquote>
+<p><code>/monitoring</code> is the trap. It looks public, it is readable without signing in,
+and it returns the platform's watch list to anonymous callers — but a
+signed-in caller additionally sees their own objects. It is deliberately
+absent, and <code>web/tests/public-proxy.test.ts</code> fails if it is added.</p>
+<h3 id="the-shared-secret">The shared secret</h3>
+<p>The API meters anonymous traffic by client address. Behind a cache every
+visitor arrives from the same few addresses, so without an exemption the
+second person to open the site would be throttled as though they were the
+first one again.</p>
+<p>Set the same value in both places:</p>
+<ul>
+<li>Render: <code>SDEBRIS_PROXY_TOKEN</code></li>
+<li>Vercel: <code>SDEBRIS_PROXY_TOKEN</code> (<strong>not</strong> <code>NEXT_PUBLIC_</code>, or it ships to the
+  browser and anyone can spend the exemption)</li>
+</ul>
+<p>Leave both unset and nothing breaks; the proxy simply gets no exemption, which
+is the safe default and fine at low traffic.</p>
+<h2 id="sign-in-avoid-email-where-possible">Sign-in: avoid email where possible</h2>
+<p>Supabase's built-in email sender allows roughly <strong>two messages an hour for the
+whole project</strong>. That is a platform limit, not a per-address one, so a visitor
+who is refused gains nothing by trying another address. At that rate the site
+cannot accept public sign-ups in any meaningful sense.</p>
+<p>Switching from magic links to six-digit codes fixed several real problems —
+no redirect to misconfigure, no same-browser constraint, no credential in a
+URL — but it did not touch this one. A code and a link are the same email.</p>
+<p>So the platform offers three routes, in this order:</p>
+<ol>
+<li><strong>GitHub</strong> — first, because the people most likely to want an account on an
+   open-source orbital tool are already reading the repository.</li>
+<li><strong>Google</strong> — for everyone else.</li>
+<li><strong>A six-digit code by email</strong> — for people who want neither.</li>
+</ol>
+<p>OAuth is unmetered, costs nothing, needs no domain, and never puts a
+credential in an inbox. Email remains as a genuine fallback, not a token one.</p>
+<h3 id="enabling-the-providers">Enabling the providers</h3>
+<p>Both are configured in <strong>Supabase → Authentication → Providers</strong>, and each
+needs an OAuth application created with the provider:</p>
+<table>
+<thead>
+<tr>
+<th>Provider</th>
+<th>Where</th>
+<th>Callback URL</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>GitHub</td>
+<td>Settings → Developer settings → OAuth Apps</td>
+<td><code>https://PROJECT.supabase.co/auth/v1/callback</code></td>
+</tr>
+<tr>
+<td>Google</td>
+<td>Google Cloud Console → Credentials → OAuth client ID</td>
+<td><code>https://PROJECT.supabase.co/auth/v1/callback</code></td>
+</tr>
+</tbody>
+</table>
+<p>Paste the client ID and secret into Supabase. Until a provider is enabled its
+button returns "Unsupported provider", which the sign-in page rewrites into
+something a visitor can act on.</p>
+<h3 id="making-email-work-properly">Making email work properly</h3>
+<p>The built-in sender is for development. For real use, configure custom SMTP in
+<strong>Supabase → Project Settings → Authentication → SMTP Settings</strong>.</p>
+<p><strong>Brevo</strong> is the recommendation for this project specifically: 300 emails a day
+free and permanent, and — unlike most providers — it will verify an individual
+sender address, so it works without owning a domain. Resend's free tier is
+larger on paper, but its test domain only delivers to your own address, so real
+sending needs a domain you have bought.</p>
+<p>Two settings, not one. After saving SMTP, raise <strong>Authentication → Rate Limits
+→ "Rate limit for sending emails"</strong>, which has its own conservative default;
+otherwise one ceiling has been swapped for another.</p>
+<p>The email template must contain <code>{{ .Token }}</code>. A template with only
+<code>{{ .ConfirmationURL }}</code> sends a link, and the code field on the sign-in page
+will never be satisfied.</p>
+<h2 id="keeping-the-instance-awake">Keeping the instance awake</h2>
+<p><code>.github/workflows/keepwarm.yml</code> pings <code>/ready</code> every ten minutes so Render does
+not stop the instance after fifteen minutes of quiet, and so Supabase does not
+pause the project after seven days without a query.</p>
+<p>It runs for twelve hours a day rather than twenty-four, and the arithmetic is
+the reason. The 750 monthly instance-hours belong to the <strong>account</strong>, not the
+service, and are shared by every free service on it — this account runs four.
+Continuous uptime for one costs 744 hours in a 31-day month, leaving nothing
+for the other three. Running out suspends the service for the rest of the
+month rather than slowing it down.</p>
+<p>Twelve hours (about 370) is defensible rather than stingy because public reads
+no longer need the instance at all. They are served from the edge, which holds
+a usable copy through <code>stale-while-revalidate</code> even while the API sleeps. A
+cold start now delays a signed-in screening run, not the picture a first-time
+visitor sees. Check the Render dashboard after a week and widen if the hours
+are there.</p>
+<p>Set the repository variable <code>SDEBRIS_API_URL</code> (Settings → Secrets and variables
+→ Actions → <strong>Variables</strong>, not Secrets — it is a public URL) or the workflow
+reports that there is nothing to do and exits.</p>
+<p>Two caveats worth knowing:</p>
+<ul>
+<li>GitHub's scheduler is best-effort and can run twenty minutes late. The job
+  pings three times across each interval so a late start still leaves no gap.
+  A dedicated uptime monitor is more reliable; UptimeRobot's free tier polls
+  every five minutes and takes two minutes to set up.</li>
+<li>Runner minutes are unmetered on <strong>public</strong> repositories. On a private one
+  this schedule would exhaust the 2,000-minute monthly allowance in about a
+  week.</li>
+</ul>
+<h2 id="what-breaks-next">What breaks next</h2>
+<p>In the order it will happen, roughly:</p>
+<ol>
+<li><strong>Vercel's Hobby plan is non-commercial.</strong> Fine for open source, but it
+   conflicts with the paid tier in the billing model. Revenue means Vercel Pro.</li>
+<li><strong>Supabase free allows 500 MB of database.</strong> Screening results accumulate;
+   old conjunction events are the first thing to prune.</li>
+<li><strong>Render's 750 hours</strong>, as above, if a second free service appears.</li>
+<li><strong>The in-process cache is per-instance.</strong> It is correct at one instance and
+   still correct at several, just less effective. The rate limiter is the part
+   that genuinely assumes a single process, and would need Redis before the
+   API is scaled horizontally.</li>
+</ol>
+<p>Free-tier figures change often. Verify them against the providers before
+relying on any number here.</p>
+
+
+
+
+
+
+
+
+
+
+
+
+                
+              </article>
+            </div>
+          
+          
+<script>var target=document.getElementById(location.hash.slice(1));target&&target.name&&(target.checked=target.name.startsWith("__tabbed_"))</script>
+        </div>
+        
+      </main>
+      
+        <footer class="md-footer">
+  
+  <div class="md-footer-meta md-typeset">
+    <div class="md-footer-meta__inner md-grid">
+      <div class="md-copyright">
+  
+  
+    Made with
+    <a href="https://squidfunk.github.io/mkdocs-material/" target="_blank" rel="noopener">
+      Material for MkDocs
+    </a>
+  
+</div>
+      
+    </div>
+  </div>
+</footer>
+      
+    </div>
+    <div class="md-dialog" data-md-component="dialog">
+      <div class="md-dialog__inner md-typeset"></div>
+    </div>
+    
+    
+    
+      
+      
+      <script id="__config" type="application/json">{"annotate": null, "base": "..", "features": ["navigation.sections", "content.code.copy"], "search": "../assets/javascripts/workers/search.2c215733.min.js", "tags": null, "translations": {"clipboard.copied": "Copied to clipboard", "clipboard.copy": "Copy to clipboard", "search.result.more.one": "1 more on this page", "search.result.more.other": "# more on this page", "search.result.none": "No matching documents", "search.result.one": "1 matching document", "search.result.other": "# matching documents", "search.result.placeholder": "Type to start searching", "search.result.term.missing": "Missing", "select.version": "Select version"}, "version": null}</script>
+    
+    
+      <script src="../assets/javascripts/bundle.d7400e89.min.js"></script>
+      
+    
+  </body>
+</html>
