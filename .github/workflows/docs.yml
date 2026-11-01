@@ -1,5 +1,15 @@
 name: Docs
 
+# Publishes the MkDocs site through GitHub's Pages deployment rather than by
+# committing the built HTML to a `gh-pages` branch. That branch was the
+# problem: Vercel builds every branch that receives a push, `gh-pages` has no
+# `web/` directory, and so every docs change produced a failed Vercel build.
+# A `vercel.json` cannot opt the branch out, because Vercel reads it from the
+# project's root directory on the branch being built -- which is exactly the
+# directory `gh-pages` lacks. With no branch pushed, there is nothing to build.
+#
+# Requires Settings -> Pages -> Build and deployment -> Source: "GitHub Actions".
+
 on:
   push:
     branches: [main]
@@ -7,12 +17,20 @@ on:
       - "docs/**"
       - "mkdocs.yml"
       - ".github/workflows/docs.yml"
+  workflow_dispatch:
 
 permissions:
-  contents: write
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  # One deployment at a time; a newer push supersedes one still queued.
+  group: pages
+  cancel-in-progress: false
 
 jobs:
-  deploy:
+  build:
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v7
@@ -21,5 +39,19 @@ jobs:
           python-version: "3.11"
           cache: pip
       - run: pip install -e ".[docs]"
-      - name: Build and deploy to GitHub Pages
-        run: mkdocs gh-deploy --force
+      - uses: actions/configure-pages@v6
+      - name: Build the site
+        run: mkdocs build --strict --site-dir site
+      - uses: actions/upload-pages-artifact@v5
+        with:
+          path: site
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-24.04
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v5
