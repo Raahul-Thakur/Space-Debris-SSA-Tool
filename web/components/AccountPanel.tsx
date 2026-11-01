@@ -19,7 +19,13 @@ type Billing = {
   };
   usage: { screening_runs_this_month: number; monitored_objects: number };
   expires_at: string | null;
+  manageable: boolean;
+  cancelled: boolean;
 };
+
+/** How long to wait for the payment webhook after returning from checkout. */
+const CHECKOUT_POLL_MS = 3000;
+const CHECKOUT_POLL_ATTEMPTS = 20;
 
 type Identity = {
   email: string;
@@ -78,6 +84,9 @@ export default function AccountPanel() {
   const [jobs, setJobs] = useState<Job[]>([]);
   const [ready, setReady] = useState(false);
   const [reachable, setReachable] = useState(true);
+  const [checkoutNotice, setCheckoutNotice] = useState("");
+  const [billingError, setBillingError] = useState("");
+  const [openingPortal, setOpeningPortal] = useState(false);
 
   const load = useCallback(async () => {
     const [b, j] = await Promise.all([
@@ -87,7 +96,43 @@ export default function AccountPanel() {
     setReachable(b !== null);
     if (b) setBilling(b);
     if (j) setJobs(j);
+    return b;
   }, []);
+
+  /**
+   * Back from checkout, the grant arrives by webhook, usually within seconds
+   * but not before the redirect. Poll until it lands rather than showing a
+   * paying customer the free plan and leaving them to wonder.
+   */
+  const awaitCheckout = useCallback(async () => {
+    setCheckoutNotice("Payment received. Waiting for the provider to confirm it…");
+    window.history.replaceState(null, "", "/account");
+    for (let attempt = 0; attempt < CHECKOUT_POLL_ATTEMPTS; attempt += 1) {
+      const b = await api<Billing>("/billing/me").catch(() => null);
+      if (b?.plan === "pro") {
+        setBilling(b);
+        setCheckoutNotice("Pro is active on this account. Thank you for supporting the project.");
+        return;
+      }
+      await new Promise((resolve) => setTimeout(resolve, CHECKOUT_POLL_MS));
+    }
+    setCheckoutNotice(
+      "The payment has not been confirmed yet. It can take a few minutes; reload this page " +
+        "later. If Pro has not appeared within an hour, reply to your receipt email."
+    );
+  }, []);
+
+  async function openPortal() {
+    setBillingError("");
+    setOpeningPortal(true);
+    try {
+      const { url } = await api<{ url: string }>("/billing/portal", { method: "POST" });
+      window.location.assign(url);
+    } catch (caught) {
+      setBillingError(caught instanceof Error ? caught.message : "Could not open billing.");
+      setOpeningPortal(false);
+    }
+  }
 
   useEffect(() => {
     let active = true;
@@ -108,7 +153,11 @@ export default function AccountPanel() {
           development: state.development
         });
         setReady(true);
-        await load();
+        const loaded = await load();
+        const returning =
+          new URLSearchParams(window.location.search).get("checkout") === "complete";
+        if (returning && active && loaded?.plan !== "pro") await awaitCheckout();
+        else if (returning) window.history.replaceState(null, "", "/account");
       })
       .catch(() => {
         if (active) router.replace("/signin");
@@ -116,7 +165,7 @@ export default function AccountPanel() {
     return () => {
       active = false;
     };
-  }, [router, load]);
+  }, [router, load, awaitCheckout]);
 
   if (!ready || !identity) {
     return <main className="auth-loading">LOADING ACCOUNT</main>;
@@ -159,13 +208,54 @@ export default function AccountPanel() {
           <div>
             <dt>Plan expires</dt>
             <dd>
-              {billing?.expires_at
-                ? new Date(billing.expires_at).toISOString().slice(0, 10)
-                : "Never"}
+              {billing?.plan !== "pro"
+                ? "—"
+                : billing.expires_at
+                  ? new Date(billing.expires_at).toISOString().slice(0, 10)
+                  : "Never"}
             </dd>
           </div>
         </dl>
       </section>
+
+      {checkoutNotice && <p className="account-notice">{checkoutNotice}</p>}
+
+      {billing && (
+        <section className="account-billing">
+          <div className="section-head">
+            <span>BILLING</span>
+            <span>{billing.plan_label}</span>
+          </div>
+          {billing.plan === "pro" ? (
+            <p className="account-note">
+              {billing.cancelled
+                ? "Your subscription is cancelled. Pro stays active until the date above, and you will not be charged again."
+                : billing.manageable
+                  ? "Cancel, change your card or download invoices from the billing portal. Cancelling keeps Pro until the end of the period you have paid for."
+                  : "Pro was granted to this account directly, so there is nothing to manage."}
+            </p>
+          ) : (
+            <p className="account-note">
+              Pro raises every limit above: more runs, longer windows and a bigger
+              watch list.
+            </p>
+          )}
+          <div className="account-actions">
+            {billing.plan === "pro" ? (
+              billing.manageable && (
+                <button type="button" disabled={openingPortal} onClick={() => void openPortal()}>
+                  {openingPortal ? "OPENING…" : "MANAGE BILLING"}
+                </button>
+              )
+            ) : (
+              <button type="button" className="primary" onClick={() => router.push("/pricing")}>
+                SEE PRO →
+              </button>
+            )}
+          </div>
+          {billingError && <p className="account-warning">{billingError}</p>}
+        </section>
+      )}
 
       {!reachable && (
         <p className="account-warning">

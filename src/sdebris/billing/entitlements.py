@@ -95,11 +95,14 @@ def grant(
     external_ref: str | None,
     expires_at: datetime | None = None,
     metadata: dict[str, Any] | None = None,
+    subject: str | None = None,
 ) -> EntitlementRecord:
     """Create or refresh a grant.
 
     Keyed on ``external_ref`` so a provider redelivering the same payment
-    renews the grant instead of stacking a second one.
+    renews the grant instead of stacking a second one. ``subject`` binds the
+    grant to an account directly, so it is found even when the buyer paid
+    with a different email from the one they sign in with.
     """
     normalised = normalise_email(email)
     if not normalised:
@@ -117,12 +120,16 @@ def grant(
         session.add(existing)
 
     existing.email = normalised
+    if subject:
+        existing.subject = subject
     existing.plan = plan.value
     existing.status = "active"
     existing.source = source
     existing.granted_at = datetime.now(timezone.utc)
     existing.expires_at = expires_at
-    existing.metadata_json = metadata or {}
+    # Merged, not replaced: a renewal that omits a field such as the
+    # customer id must not erase what an earlier delivery recorded.
+    existing.metadata_json = {**(existing.metadata_json or {}), **(metadata or {})}
     session.flush()
     return existing
 
@@ -150,5 +157,44 @@ def revoke(
     if record is None:
         return None
     record.status = status
+    session.flush()
+    return record
+
+
+def end_at(
+    session: Session, *, external_ref: str, ends_at: datetime
+) -> EntitlementRecord | None:
+    """Stop a grant renewing, keeping it until ``ends_at`` if that is sooner.
+
+    Used when a subscriber cancels: they have paid for the period they are in,
+    so access runs to its end rather than stopping the moment they click.
+    """
+    record = session.scalar(
+        select(EntitlementRecord).where(EntitlementRecord.external_ref == external_ref)
+    )
+    if record is None:
+        return None
+    current = as_utc(record.expires_at)
+    if current is None or ends_at < current:
+        record.expires_at = ends_at
+    record.metadata_json = {**(record.metadata_json or {}), "cancelled": True}
+    session.flush()
+    return record
+
+
+def restore(
+    session: Session, *, external_ref: str, from_status: str
+) -> EntitlementRecord | None:
+    """Reactivate a grant suspended with ``from_status``, and only that.
+
+    A dispute won restores access a dispute suspended; it must not revive a
+    grant that was separately refunded or has expired.
+    """
+    record = session.scalar(
+        select(EntitlementRecord).where(EntitlementRecord.external_ref == external_ref)
+    )
+    if record is None or record.status != from_status:
+        return None
+    record.status = "active"
     session.flush()
     return record

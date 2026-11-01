@@ -11,16 +11,18 @@ export const metadata: Metadata = {
  * Required before Google will publish the OAuth consent screen, but written to
  * be true rather than to satisfy a form. Every claim here is checkable against
  * the source: there is no analytics package in the frontend, the request logger
- * records no address, and the only personal field the database holds is the
- * email the identity provider returned.
+ * records no address, and the personal fields the database holds are the email
+ * the identity provider returned and, for buyers, what the billing webhook keeps
+ * after `ledger_payload` strips card and address details.
  */
-const UPDATED = "12 October 2026";
+const UPDATED = "1 November 2026";
 const CONTACT = "raahul.thakurr01@gmail.com";
 
 const SECTIONS = [
   { id: "summary", label: "The short version" },
   { id: "reading", label: "Reading without an account" },
   { id: "account", label: "If you sign in" },
+  { id: "paying", label: "If you buy Pro" },
   { id: "browser", label: "What is stored in your browser" },
   { id: "not", label: "What this site does not do" },
   { id: "processors", label: "Who else handles it" },
@@ -123,6 +125,31 @@ export default function PrivacyPage() {
           </p>
         </section>
 
+        <section id="paying">
+          <h2>If you buy Pro</h2>
+          <p>
+            Payment happens on a checkout page run by Dodo Payments, the merchant of record.
+            Your card number never reaches this site. Dodo collects what it needs to take
+            the payment and work out tax: your name, email, billing country and card. Its
+            own privacy policy governs that.
+          </p>
+          <p>
+            When a payment succeeds, Dodo tells this platform so your account can be
+            upgraded. What is kept from that message:
+          </p>
+          <ul className="docs-list">
+            <li>your name and email address as you gave them at checkout;</li>
+            <li>Dodo&apos;s identifiers for you, the payment and any subscription;</li>
+            <li>which product you bought, the amount, the currency and the dates.</li>
+          </ul>
+          <p>
+            Your billing address and card details (brand, last four digits, expiry and
+            cardholder name) are deleted from that message before it is stored. Payment
+            records are kept for as long as tax and accounting rules require, even after
+            an account is deleted.
+          </p>
+        </section>
+
         <section id="browser">
           <h2>What is stored in your browser</h2>
           <ul className="docs-list">
@@ -149,15 +176,18 @@ export default function PrivacyPage() {
             <li>No advertising, and no data shared with advertisers.</li>
             <li>No selling or renting of personal data, in any circumstances.</li>
             <li>No tracking across other websites.</li>
-            <li>No marketing email. Email is only ever sent to deliver a sign-in code.</li>
+            <li>
+              No marketing email. This site emails you only to deliver a sign-in code; Dodo
+              Payments sends receipts if you buy Pro.
+            </li>
           </ul>
         </section>
 
         <section id="processors">
           <h2>Who else handles it</h2>
           <p>
-            Running this service free of charge means relying on other companies for
-            infrastructure. Each sees only what it needs:
+            Running this service means relying on other companies for infrastructure and
+            payments. Each sees only what it needs:
           </p>
           <table className="docs-table">
             <thead>
@@ -187,6 +217,11 @@ export default function PrivacyPage() {
                 <td>Brevo</td>
                 <td>Sends sign-in codes</td>
                 <td>Your email address, only if you use the email route</td>
+              </tr>
+              <tr>
+                <td>Dodo Payments</td>
+                <td>Checkout, billing, tax and receipts</td>
+                <td>What you enter at checkout, only if you buy Pro</td>
               </tr>
               <tr>
                 <td>GitHub / Google</td>

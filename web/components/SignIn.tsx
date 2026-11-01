@@ -10,6 +10,7 @@ import {
   verifyEmailCode,
   type OAuthProvider
 } from "@/lib/auth";
+import { consumeReturnTo } from "@/lib/returnTo";
 
 /**
  * Supabase refuses a second code for the same address inside a minute.
@@ -140,7 +141,7 @@ export default function SignIn() {
     try {
       await verifyEmailCode(email.trim(), code);
       setStatus("Signed in.");
-      router.replace("/");
+      router.replace(consumeReturnTo() ?? "/");
     } catch (caught) {
       setStatus("");
       setError(describe(caught));

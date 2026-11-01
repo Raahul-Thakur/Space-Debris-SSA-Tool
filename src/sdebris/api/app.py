@@ -32,24 +32,26 @@ from sdebris.auth import (
 from sdebris.billing import (
     FOUNDING_LIFETIME,
     FOUNDING_SEATS,
+    PLAN_LIMITS,
     SUBSCRIPTION,
+    BillingUnavailable,
+    DodoClient,
     Plan,
+    Products,
     WebhookError,
     active_entitlement,
+    apply_event,
     as_utc,
     check_monitoring_allowed,
     check_screening_allowed,
     count_lifetime_grants,
-    grant_expiry,
+    ledger_payload,
     limits_for,
     parse_event,
     plan_for,
     usage_for,
     verify_signature,
 )
-from sdebris.billing.entitlements import grant as grant_entitlement
-from sdebris.billing.entitlements import revoke as revoke_entitlement
-from sdebris.billing.webhooks import GRANTING_EVENTS, REVOKING_EVENTS
 from sdebris.commands import CommandParseError, parse_command
 from sdebris.commands.parser import COMMAND_HELP
 from sdebris.config import load_config, load_env
@@ -86,6 +88,7 @@ from sdebris.ontology.schemas import (
     AlertView,
     AuditActionView,
     CaseActionRequest,
+    CheckoutRequest,
     CommandRequest,
     CommandResponse,
     ConjunctionEventCreate,
@@ -130,6 +133,27 @@ from sdebris.tenancy import owns, scope
 
 #: Billing provider whose webhooks this deployment accepts.
 BILLING_PROVIDER = "dodo"
+
+
+def _billing_products() -> Products:
+    """The provider products on sale, read per request so tests can set them."""
+    return Products(
+        subscription=os.getenv("SDEBRIS_BILLING_PRO_PRODUCT_ID", "").strip() or None,
+        lifetime=os.getenv("SDEBRIS_BILLING_LIFETIME_PRODUCT_ID", "").strip() or None,
+    )
+
+
+def _site_url() -> str:
+    """Where the provider sends a buyer back to.
+
+    Defaults to the first allowed CORS origin, which is the deployed frontend
+    in every configuration this project documents.
+    """
+    explicit = os.getenv("SDEBRIS_SITE_URL", "").strip()
+    if explicit:
+        return explicit.rstrip("/")
+    origins = os.getenv("SDEBRIS_CORS_ORIGINS", "http://localhost:3000").split(",")
+    return origins[0].strip().rstrip("/")
 
 #: Seconds between activity-feed reads on an open SSE connection.
 ACTIVITY_POLL_SECONDS = 2.0
@@ -1515,11 +1539,25 @@ def create_app(database_url: str | None = None) -> FastAPI:
                 if entitlement and (moment := as_utc(entitlement.expires_at))
                 else None
             ),
+            # Whether the provider's portal can be opened for this grant. A
+            # grant comped by hand has no provider customer behind it.
+            "manageable": bool(
+                entitlement and (entitlement.metadata_json or {}).get("customer_id")
+            ),
+            "cancelled": bool(
+                entitlement and (entitlement.metadata_json or {}).get("cancelled")
+            ),
         }
 
     @app.get("/billing/plans")
-    def billing_plans(session: SessionDep, principal: PrincipalDep) -> dict[str, object]:
-        """The offers a visitor can buy, and whether founding seats remain."""
+    def billing_plans(
+        session: SessionDep, principal: OptionalPrincipalDep
+    ) -> dict[str, object]:
+        """What each plan allows and what Pro costs, for the pricing page.
+
+        Readable without an account: a visitor should see the price before
+        being asked to sign in.
+        """
         taken = count_lifetime_grants(session)
         remaining = max(0, FOUNDING_SEATS - taken)
         offers: list[dict[str, object]] = [
@@ -1544,8 +1582,89 @@ def create_app(database_url: str | None = None) -> FastAPI:
                     "seats_remaining": remaining,
                 }
             )
-        current = plan_for(session, principal)
-        return {"current_plan": current.value, "offers": offers}
+        current = plan_for(session, principal) if principal else Plan.FREE
+        return {
+            "current_plan": current.value,
+            "offers": offers,
+            "plans": [
+                {
+                    "plan": tier.value,
+                    "label": tier.label,
+                    "screening_runs_per_month": limits.screening_runs_per_month,
+                    "monitored_objects": limits.monitored_objects,
+                    "max_window_hours": limits.max_window_hours,
+                    "commands_per_minute": limits.commands_per_minute,
+                }
+                for tier, limits in PLAN_LIMITS.items()
+            ],
+        }
+
+    @app.post("/billing/checkout")
+    def billing_checkout(
+        payload: CheckoutRequest, session: SessionDep, principal: PrincipalDep
+    ) -> dict[str, str]:
+        """Start a checkout for an offer and return the provider's page."""
+        if not payload.accepted_terms:
+            raise HTTPException(
+                status_code=400, detail="Accept the terms before continuing to payment."
+            )
+        products = _billing_products()
+        if payload.offer == SUBSCRIPTION.code:
+            product_id = products.subscription
+        elif payload.offer == FOUNDING_LIFETIME.code:
+            product_id = products.lifetime
+            # The only place the cap can be enforced: once a checkout exists
+            # the buyer can pay, and a paid grant is always honoured.
+            if count_lifetime_grants(session) >= FOUNDING_SEATS:
+                raise HTTPException(
+                    status_code=409, detail="The founding seats have all been taken."
+                )
+        else:
+            raise HTTPException(status_code=404, detail="No such offer.")
+        if not product_id:
+            raise HTTPException(status_code=503, detail="This offer is not on sale yet.")
+
+        current = active_entitlement(session, principal)
+        if current is not None:
+            # A subscriber may still buy a founding seat to stop paying monthly;
+            # anything else would be paying twice for the same thing.
+            lifetime = as_utc(current.expires_at) is None
+            if lifetime or payload.offer == SUBSCRIPTION.code:
+                raise HTTPException(
+                    status_code=409,
+                    detail="This account already has Pro. Manage it from the account page.",
+                )
+        try:
+            url = DodoClient.from_env().create_checkout(
+                product_id=product_id,
+                email=principal.email,
+                subject=principal.subject,
+                offer=payload.offer,
+                return_url=f"{_site_url()}/account?checkout=complete",
+            )
+        except BillingUnavailable as exc:
+            raise HTTPException(status_code=503, detail=str(exc)) from exc
+        session.commit()
+        return {"checkout_url": url}
+
+    @app.post("/billing/portal")
+    def billing_portal(session: SessionDep, principal: PrincipalDep) -> dict[str, str]:
+        """A link to the provider's portal, to cancel or change a card."""
+        current = active_entitlement(session, principal)
+        customer_id = (current.metadata_json or {}).get("customer_id") if current else None
+        if not customer_id:
+            raise HTTPException(
+                status_code=404,
+                detail="There is no paid subscription on this account to manage.",
+            )
+        try:
+            url = DodoClient.from_env().portal_link(
+                customer_id=str(customer_id), return_url=f"{_site_url()}/account"
+            )
+        except BillingUnavailable as exc:
+            raise HTTPException(status_code=503, detail=str(exc)) from exc
+        session.commit()
+        return {"url": url}
 
     @app.post("/billing/webhook")
     async def billing_webhook(request: Request, session: SessionDep) -> dict[str, str]:
@@ -1588,40 +1707,21 @@ def create_app(database_url: str | None = None) -> FastAPI:
         if already is not None:
             return {"status": "duplicate", "outcome": already.outcome}
 
-        outcome = "ignored"
-        if event.event_type in GRANTING_EVENTS and event.email:
-            expires_at = grant_expiry(
-                event,
-                lifetime_product_id=os.getenv("SDEBRIS_BILLING_LIFETIME_PRODUCT_ID"),
-            )
-            grant_entitlement(
-                session,
-                email=event.email,
-                plan=Plan.PRO,
-                source=BILLING_PROVIDER,
-                external_ref=event.external_ref,
-                expires_at=expires_at,
-                metadata={
-                    "event_type": event.event_type,
-                    "product_id": event.product_id,
-                    "lifetime": expires_at is None,
-                },
-            )
-            outcome = "granted-lifetime" if expires_at is None else "granted"
-        elif event.event_type in REVOKING_EVENTS and event.external_ref:
-            revoked = revoke_entitlement(
-                session,
-                external_ref=event.external_ref,
-                status=REVOKING_EVENTS[event.event_type],
-            )
-            outcome = "revoked" if revoked else "revoke-no-match"
-
+        outcome = apply_event(
+            session,
+            event,
+            provider=BILLING_PROVIDER,
+            products=_billing_products(),
+            founding_seats=FOUNDING_SEATS,
+        )
         session.add(
             BillingEventRecord(
                 provider=BILLING_PROVIDER,
                 event_id=event.event_id,
                 event_type=event.event_type or "unknown",
-                payload=payload,
+                payment_id=event.payment_id,
+                subscription_id=event.subscription_id,
+                payload=ledger_payload(payload),
                 outcome=outcome,
             )
         )

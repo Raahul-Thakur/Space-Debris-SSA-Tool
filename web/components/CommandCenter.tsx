@@ -14,8 +14,9 @@ import {
   useSyncExternalStore
 } from "react";
 import ThemeToggle from "@/components/ThemeToggle";
-import { api, publicApi, streamSse } from "@/lib/api";
+import { api, isQuotaError, publicApi, streamSse } from "@/lib/api";
 import { getSupabase, initializeAuth, signOut } from "@/lib/auth";
+import { consumeReturnTo } from "@/lib/returnTo";
 import {
   getSeenEventsServerSnapshot,
   getSeenEventsSnapshot,
@@ -92,6 +93,9 @@ export default function CommandCenter() {
   const [selectedNoradId, setSelectedNoradId] = useState<string | null>(null);
   const [riskEvents, setRiskEvents] = useState<RiskEvent[]>([]);
   const [error, setError] = useState("");
+  // Set when the last refusal was a plan limit, so the error can offer the
+  // way past it instead of leaving "Upgrade to Pro" as a dead end.
+  const [quotaHit, setQuotaHit] = useState(false);
   const [notice, setNotice] = useState(
     deepLink.command ? "Command loaded from the docs. Review it, then press Execute." : ""
   );
@@ -118,6 +122,13 @@ export default function CommandCenter() {
 
   /** Reinstate a command typed before the visitor was sent to sign in. */
   const restorePendingCommand = useCallback(() => {
+    // Sign-in always lands here, including from the pricing page, which asks
+    // to be returned to rather than left on the console.
+    const returnTo = consumeReturnTo();
+    if (returnTo) {
+      router.replace(returnTo);
+      return;
+    }
     let pending: string | null = null;
     try {
       pending = window.sessionStorage.getItem(PENDING_COMMAND_KEY);
@@ -129,7 +140,7 @@ export default function CommandCenter() {
     setCommand(pending);
     setNotice("Signed in. Your command is ready — press Execute to run it.");
     setPaletteOpen(true);
-  }, []);
+  }, [router]);
 
   const refresh = useCallback(async () => {
     const [nextJobs, platformMonitored, ownMonitored, listed] = await Promise.all([
@@ -496,6 +507,7 @@ export default function CommandCenter() {
     if (closing && !confirmed) return;
     setBusy(true);
     setError("");
+    setQuotaHit(false);
     setNotice("");
     setJobEvents([]);
     try {
@@ -513,6 +525,7 @@ export default function CommandCenter() {
       setActiveSuggestion(-1);
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : "Command failed");
+      setQuotaHit(isQuotaError(caught));
     } finally {
       setBusy(false);
     }
@@ -626,6 +639,9 @@ export default function CommandCenter() {
           </button>
           <Link className="topbar-link" href="/docs" data-tour="docs-link">
             DOCS
+          </Link>
+          <Link className="topbar-link" href="/pricing">
+            PRICING
           </Link>
           {authenticated && (
             <Link className="topbar-link" href="/account">
@@ -1022,7 +1038,16 @@ export default function CommandCenter() {
             {busy ? "QUEUING…" : "EXECUTE ↵"}
           </button>
         </div>
-        {error && <p className="command-error">{error}</p>}
+        {error && (
+          <p className="command-error">
+            {error}
+            {quotaHit && (
+              <Link className="upgrade-link" href="/pricing">
+                SEE PRO →
+              </Link>
+            )}
+          </p>
+        )}
         {!error && notice && <p className="command-notice">{notice}</p>}
       </form>
     </main>

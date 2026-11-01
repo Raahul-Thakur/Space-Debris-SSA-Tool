@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { api, setAccessToken } from "@/lib/api";
+import { ApiError, api, isQuotaError, setAccessToken } from "@/lib/api";
 
 describe("api client", () => {
   afterEach(() => {
@@ -34,5 +34,18 @@ describe("api client", () => {
       })
     );
     await expect(api("/screening-jobs")).rejects.toThrow("analyst role required");
+  });
+
+  it("marks a plan limit so the console can offer an upgrade", async () => {
+    vi.spyOn(globalThis, "fetch").mockResolvedValue(
+      new Response(JSON.stringify({ detail: "Upgrade to Pro for a higher limit." }), {
+        status: 402,
+        headers: { "Content-Type": "application/json" }
+      })
+    );
+    const caught = await api("/commands/execute").catch((error: unknown) => error);
+    expect(caught).toBeInstanceOf(ApiError);
+    expect(isQuotaError(caught)).toBe(true);
+    expect(isQuotaError(new ApiError("forbidden", 403))).toBe(false);
   });
 });

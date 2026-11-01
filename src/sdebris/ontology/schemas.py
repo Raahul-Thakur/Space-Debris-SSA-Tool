@@ -75,6 +75,17 @@ class CommandRequest(BaseModel):
     confirmed: bool = False
 
 
+class CheckoutRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    #: An offer code from ``/billing/plans``.
+    offer: str = Field(min_length=1, max_length=64)
+    #: The buyer has read the terms and the statement that outputs are
+    #: illustrative. Checked server-side so it cannot be skipped by calling
+    #: the API directly.
+    accepted_terms: bool = False
+
+
 class ManeuverPreviewRequest(BaseModel):
     """A proposed burn, in the primary's RIC frame, before closest approach.
 

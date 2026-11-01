@@ -5,9 +5,15 @@ Dodo Payments signs deliveries with the `Standard Webhooks
 id, a timestamp and one or more versioned HMAC-SHA256 signatures over
 ``{id}.{timestamp}.{body}``.
 
-Verify the header names and event names against the provider's current
-documentation before going live — they are the part most likely to have moved.
-The signature algorithm is the published standard and is stable.
+Header names, event names and payload fields were checked against Dodo's
+webhook guide and OpenAPI reference in November 2026. Two facts from that
+reference shape everything below:
+
+* A one-time purchase names its product inside ``data.product_cart``, not in a
+  top-level ``product_id``; only subscription payloads carry ``product_id``.
+* Refund and dispute payloads name the ``payment_id`` they reverse and nothing
+  else, so reversing a subscription needs the payment-to-subscription link
+  recorded when the payment succeeded.
 """
 
 from __future__ import annotations
@@ -40,8 +46,13 @@ class BillingEvent:
     event_id: str
     event_type: str
     email: str | None
-    external_ref: str | None
+    payment_id: str | None
+    subscription_id: str | None
     product_id: str | None
+    #: The provider's customer id, needed to open their billing portal.
+    customer_id: str | None
+    #: The auth subject the checkout was started for, carried in metadata.
+    subject: str | None
     #: End of the paid period for a recurring purchase, if the provider sent one.
     period_end: datetime | None
     payload: dict[str, Any]
@@ -49,6 +60,15 @@ class BillingEvent:
     @property
     def is_subscription(self) -> bool:
         return self.event_type.startswith("subscription.")
+
+    @property
+    def external_ref(self) -> str | None:
+        """The key a grant from this event is stored under.
+
+        A subscription's grant outlives any one payment, so it is keyed on the
+        subscription; a one-time purchase has only its payment.
+        """
+        return self.subscription_id or self.payment_id
 
 
 #: How long a subscription grant outlives the provider's renewal date. Renewal
@@ -104,24 +124,27 @@ def verify_signature(
     raise WebhookError("no signature in the delivery matched")
 
 
-#: Provider event names that grant access, mapped to whether they recur.
-GRANTING_EVENTS = {
-    "payment.succeeded": False,
-    "subscription.active": True,
-    "subscription.renewed": True,
-}
-#: Event names that withdraw access, mapped to the status to record.
-REVOKING_EVENTS = {
-    "payment.failed": "failed",
-    "payment.refunded": "refunded",
-    "refund.succeeded": "refunded",
-    "dispute.opened": "disputed",
-    "subscription.cancelled": "cancelled",
-    "subscription.canceled": "cancelled",
+#: Events that start or extend a subscription grant. A one-time purchase is
+#: granted from ``payment.succeeded`` instead, because a subscription's first
+#: payment also fires that event and must not create a second grant.
+SUBSCRIPTION_GRANTING_EVENTS = frozenset({"subscription.active", "subscription.renewed"})
+#: Subscription events that end access now. Each arrives after the paid
+#: period has already run out or never began, so there is nothing to honour.
+SUBSCRIPTION_ENDING_EVENTS = {
     "subscription.expired": "expired",
     "subscription.failed": "failed",
     "subscription.on_hold": "on_hold",
 }
+#: Payment reversals, mapped to the status recorded on the grant they undo.
+REVERSAL_EVENTS = {
+    "refund.succeeded": "refunded",
+    "dispute.opened": "disputed",
+    "dispute.lost": "disputed",
+}
+#: A dispute settled in the seller's favour restores what it suspended.
+DISPUTE_WON = "dispute.won"
+#: Cancellation stops renewal; it does not take back the period already paid.
+SUBSCRIPTION_CANCELLED = "subscription.cancelled"
 
 
 def _parse_moment(value: Any) -> datetime | None:
@@ -147,70 +170,79 @@ def _first(payload: dict[str, Any], *paths: tuple[str, ...]) -> Any:
     return None
 
 
-def parse_event(event_id: str, payload: dict[str, Any]) -> BillingEvent:
-    """Pull the fields entitlement handling needs out of a provider payload.
+def _cart_product(payload: dict[str, Any]) -> str | None:
+    data = payload.get("data")
+    cart = data.get("product_cart") if isinstance(data, dict) else None
+    if isinstance(cart, list):
+        for item in cart:
+            if isinstance(item, dict) and item.get("product_id"):
+                return str(item["product_id"])
+    return None
 
-    Providers move things between the envelope and `data`, so each field is
-    looked for in the documented place and the obvious alternatives.
-    """
+
+def parse_event(event_id: str, payload: dict[str, Any]) -> BillingEvent:
+    """Pull the fields entitlement handling needs out of a provider payload."""
     event_type = str(payload.get("type") or payload.get("event_type") or "").strip()
-    email = _first(
-        payload,
-        ("data", "customer", "email"),
-        ("data", "customer_email"),
-        ("data", "email"),
-        ("customer", "email"),
-        ("email",),
+    email = _first(payload, ("data", "customer", "email"), ("data", "customer_email"))
+    payment_id = _first(payload, ("data", "payment_id"))
+    subscription_id = _first(payload, ("data", "subscription_id"))
+    product_id = _first(payload, ("data", "product_id")) or _cart_product(payload)
+    customer_id = _first(
+        payload, ("data", "customer", "customer_id"), ("data", "customer_id")
     )
-    external_ref = _first(
-        payload,
-        ("data", "subscription_id"),
-        ("data", "payment_id"),
-        ("data", "id"),
-        ("subscription_id",),
-        ("payment_id",),
-    )
-    product_id = _first(
-        payload,
-        ("data", "product_id"),
-        ("data", "product", "product_id"),
-        ("data", "product", "id"),
-        ("product_id",),
-    )
-    period_end = _parse_moment(
-        _first(
-            payload,
-            ("data", "next_billing_date"),
-            ("data", "current_period_end"),
-            ("data", "expires_at"),
-        )
-    )
+    subject = _first(payload, ("data", "metadata", "subject"))
+    period_end = _parse_moment(_first(payload, ("data", "next_billing_date")))
     return BillingEvent(
         event_id=event_id,
         event_type=event_type,
         email=str(email) if email else None,
-        external_ref=str(external_ref) if external_ref else None,
+        payment_id=str(payment_id) if payment_id else None,
+        subscription_id=str(subscription_id) if subscription_id else None,
         product_id=str(product_id) if product_id else None,
+        customer_id=str(customer_id) if customer_id else None,
+        subject=str(subject) if subject else None,
         period_end=period_end,
         payload=payload,
     )
 
 
-def grant_expiry(
-    event: BillingEvent, *, lifetime_product_id: str | None, now: datetime | None = None
-) -> datetime | None:
-    """When the grant this event buys should lapse; ``None`` means never.
+#: Payload fields the ledger never needs, removed before a delivery is stored.
+#: A payment carries the billing address and card details; holding them would
+#: make this database a target for no benefit, since the provider keeps them.
+LEDGER_REDACTED_FIELDS = frozenset(
+    {
+        "billing",
+        "card_exp_month",
+        "card_exp_year",
+        "card_holder_name",
+        "card_issuing_country",
+        "card_last_four",
+        "card_network",
+        "card_type",
+        "payment_method",
+        "payment_method_id",
+        "tax_id",
+        "custom_field_responses",
+    }
+)
 
-    A purchase counts as lifetime only when it matches the configured lifetime
-    product. Everything else is treated as a period that has to be renewed, so
-    a misconfiguration under-grants rather than handing out free forever.
-    """
-    if (
-        lifetime_product_id
-        and event.product_id
-        and event.product_id == lifetime_product_id
-    ):
-        return None
+
+def ledger_payload(payload: dict[str, Any]) -> dict[str, Any]:
+    """The delivery as it should be kept: everything but payment details."""
+    data = payload.get("data")
+    if not isinstance(data, dict):
+        return payload
+    kept = {key: value for key, value in data.items() if key not in LEDGER_REDACTED_FIELDS}
+    customer = kept.get("customer")
+    if isinstance(customer, dict):
+        kept["customer"] = {
+            key: value for key, value in customer.items() if key != "phone_number"
+        }
+    return {**payload, "data": kept}
+
+
+def subscription_expiry(event: BillingEvent, now: datetime | None = None) -> datetime:
+    """When a subscription grant lapses unless a renewal extends it."""
     moment = now or datetime.now(timezone.utc)
     period_end = event.period_end or (moment + DEFAULT_PERIOD)
     return period_end + RENEWAL_GRACE

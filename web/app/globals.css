@@ -1762,3 +1762,57 @@ button { color: inherit; }
   .command-error, .command-notice { left: 12px; right: 12px; bottom: 84px; }
   .docs-body h1 { font-size: 44px; }
 }
+
+/* ---------------------------------------------------------------- pricing
+   A docs page without the contents rail: one column, so the body takes the
+   whole grid width. Offers sit side by side as ruled boxes, never cards. */
+.pricing-shell { grid-template-columns: minmax(0, 1fr); }
+.pricing-body { max-width: 860px; margin: 0 auto; width: 100%; }
+.pricing-compare td:first-child { width: 160px; }
+.pricing-consent {
+  display: flex;
+  gap: 12px;
+  align-items: flex-start;
+  margin: 26px 0 18px;
+  color: var(--ink-soft);
+  font-size: 13px;
+  line-height: 1.6;
+}
+.pricing-consent input { margin-top: 4px; accent-color: var(--signal); }
+.pricing-offers { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 18px; }
+.pricing-offer { padding: 22px; border: 1px solid var(--ink); }
+.docs-body .pricing-offer { padding-bottom: 22px; }
+.pricing-price { margin: 10px 0; color: var(--ink) !important; font: 400 44px/1 var(--display) !important; }
+.pricing-price small { color: var(--ink-faint); font: 400 11px var(--mono); letter-spacing: .1em; }
+.pricing-seats { color: var(--signal) !important; font: 500 10px var(--mono) !important; letter-spacing: .14em; text-transform: uppercase; }
+.pricing-offer button,
+.account-actions button.primary,
+.command-error .upgrade-link {
+  border: 1px solid var(--signal);
+  background: var(--signal);
+  color: var(--paper);
+  cursor: pointer;
+  font: 500 10px var(--mono);
+  letter-spacing: .16em;
+  text-transform: uppercase;
+}
+.pricing-offer button { margin-top: 14px; padding: 12px 17px; width: 100%; }
+.pricing-offer button:disabled { opacity: .6; cursor: progress; }
+.account-actions button.primary:hover,
+.pricing-offer button:hover:not(:disabled) { background: var(--signal-deep); border-color: var(--signal-deep); }
+.pricing-error { position: static; margin-top: 14px; }
+.pricing-current { margin-top: 24px; }
+.command-error .upgrade-link {
+  display: inline-block;
+  margin-left: 10px;
+  padding: 3px 8px;
+  border-color: var(--paper);
+  text-decoration: none;
+}
+.account-notice {
+  margin: 0 0 18px;
+  padding: 12px 16px;
+  border: 1px solid var(--ink);
+  color: var(--ink);
+  font: 400 12px/1.6 var(--mono);
+}

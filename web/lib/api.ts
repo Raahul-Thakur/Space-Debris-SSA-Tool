@@ -11,6 +11,25 @@ export function getAccessToken() {
   return accessToken;
 }
 
+/**
+ * A refused request, carrying its status so callers can tell a quota (402)
+ * from a permission problem (403) without parsing the message.
+ */
+export class ApiError extends Error {
+  constructor(
+    message: string,
+    readonly status: number
+  ) {
+    super(message);
+    this.name = "ApiError";
+  }
+}
+
+/** Payment Required: the plan's allowance is used up, and Pro would lift it. */
+export function isQuotaError(caught: unknown): boolean {
+  return caught instanceof ApiError && caught.status === 402;
+}
+
 export async function api<T>(path: string, init?: RequestInit): Promise<T> {
   const response = await fetch(`${API_BASE}${path}`, {
     ...init,
@@ -22,7 +41,7 @@ export async function api<T>(path: string, init?: RequestInit): Promise<T> {
   });
   if (!response.ok) {
     const body = await response.json().catch(() => ({}));
-    throw new Error(body.detail ?? `Request failed (${response.status})`);
+    throw new ApiError(body.detail ?? `Request failed (${response.status})`, response.status);
   }
   return response.json();
 }

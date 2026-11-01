@@ -40,3 +40,19 @@ services:
       # unsigned input.
       - key: SDEBRIS_BILLING_WEBHOOK_SECRET
         sync: false
+      # Dodo API key, used to create checkouts and open the customer portal.
+      # Without it the pricing page shows offers but checkout returns 503.
+      - key: SDEBRIS_DODO_API_KEY
+        sync: false
+      # "test" until a real purchase has been run end to end, then "live".
+      - key: SDEBRIS_DODO_ENVIRONMENT
+        value: test
+      # Dodo product ids. Only these two grant Pro; a payment for anything
+      # else is recorded and ignored.
+      - key: SDEBRIS_BILLING_PRO_PRODUCT_ID
+        sync: false
+      - key: SDEBRIS_BILLING_LIFETIME_PRODUCT_ID
+        sync: false
+      # Where checkout returns the buyer. Defaults to the first CORS origin.
+      - key: SDEBRIS_SITE_URL
+        sync: false

@@ -224,30 +224,64 @@ Dodo Payments is a merchant of record: it is the legal seller, collects in USD
 worldwide, handles VAT/GST/sales tax, and remits to an Indian bank account.
 That is what makes it workable where Stripe is not.
 
-Create a product for the Pro plan, then point its webhook at:
+Do all of this in Dodo's **test mode** first.
+
+1. Create two products: a **$6 monthly subscription** and a **$29 one-time**
+   founding purchase. Put their ids in Render as
+   `SDEBRIS_BILLING_PRO_PRODUCT_ID` and `SDEBRIS_BILLING_LIFETIME_PRODUCT_ID`.
+   Only those two grant Pro; a payment for anything else is recorded and
+   ignored.
+2. Create an API key and set it as `SDEBRIS_DODO_API_KEY`, with
+   `SDEBRIS_DODO_ENVIRONMENT=test`.
+3. Add a webhook pointing at the URL below, subscribed to `payment.succeeded`,
+   `subscription.active`, `subscription.renewed`, `subscription.cancelled`,
+   `subscription.expired`, `subscription.failed`, `subscription.on_hold`,
+   `refund.succeeded`, `dispute.opened`, `dispute.lost` and `dispute.won`. Copy
+   its signing secret into `SDEBRIS_BILLING_WEBHOOK_SECRET`.
+4. In the business settings, give Dodo the terms (`/terms`), refund policy
+   (`/refunds`) and privacy policy (`/privacy`) URLs it asks for.
+5. Do not share either product's static payment link. Checkout must start from
+   the pricing page, because that is where the founding-seat cap is enforced and
+   where the buyer's account is attached to the purchase.
 
 ```text
 https://YOUR_API.onrender.com/billing/webhook
 ```
 
-Copy the signing secret into Render as `SDEBRIS_BILLING_WEBHOOK_SECRET`. Until
-that variable is set the endpoint returns `503` for every delivery — it never
-falls back to trusting unsigned input.
+Until the signing secret is set, the endpoint returns `503` for every delivery.
+It never falls back to trusting unsigned input. Without the API key the pricing
+page still shows the offers, but starting a checkout returns `503`.
 
 Deliveries are verified against the [Standard Webhooks](https://www.standardwebhooks.com)
 scheme: `webhook-id`, `webhook-timestamp` and `webhook-signature` headers over
 an HMAC-SHA256 of `{id}.{timestamp}.{body}`, with a five-minute replay window.
-**Check the header and event names against Dodo's current documentation before
-going live** — the signature algorithm is a published standard and stable, but
-event naming is the part most likely to have changed. The names this build
-recognises are in `GRANTING_EVENTS` and `REVOKING_EVENTS` in
-`src/sdebris/billing/webhooks.py`; adding one is a dictionary entry.
+Event names and payload fields were checked against Dodo's webhook guide and
+OpenAPI reference in November 2026. The rules for each event are in
+`src/sdebris/billing/fulfilment.py`:
 
-Grants are keyed on the buyer's email, because that is all a merchant of record
-knows at checkout. The auth subject is attached on their first signed-in
-request, so buying and signing up can happen in either order. Every delivery is
-recorded in `billing_events` and is idempotent on the provider's event id, so a
-retry renews a grant rather than stacking a second one.
+- A subscription is granted from `subscription.active` and extended by
+  `subscription.renewed`, keyed on the subscription id. Its first payment also
+  fires `payment.succeeded`, which is only recorded.
+- The founding purchase is granted from `payment.succeeded`. Its product id is
+  in `data.product_cart`, not a top-level field.
+- `subscription.cancelled` stops renewal but keeps Pro until the
+  `next_billing_date` already paid for.
+- A refund or dispute names only a `payment_id`. The `billing_events` ledger
+  records which subscription each payment belonged to, so a refunded renewal
+  withdraws the subscription's grant.
+
+Checkout puts the buyer's auth subject in the session metadata, so the grant
+reaches their account even if they pay with a different email. Grants are also
+matched on email, so a purchase made outside the pricing page still lands. Every
+delivery is recorded in `billing_events`, minus the billing address and card
+details, and is idempotent on the provider's event id. A retry renews a grant
+rather than stacking a second one.
+
+Before switching to live, run one purchase of each product end to end in test
+mode, then refund one. Check that the account page shows Pro and then Free
+again, and that every row in `billing_events` has an `outcome` other than
+`ignored-*`. Then set `SDEBRIS_DODO_ENVIRONMENT=live` and swap in the live API
+key, product ids and webhook secret.
 
 To comp an account without a payment, insert a row in `entitlements` with
 `plan='pro'`, `status='active'`, the person's email, and a null `expires_at`
@@ -272,6 +306,8 @@ Test recovery periodically with `pg_restore` into a disposable database.
 - Confirm a viewer cannot start screening and receives `403`.
 - Confirm an analyst can enqueue a screening and receives progress events.
 - Confirm `/billing/webhook` returns `400` for an unsigned delivery.
+- Complete a test-mode purchase of each product from `/pricing` and refund one
+  (see section 4).
 - Confirm a free account is refused a window over 24 hours with `402`.
 - Confirm the live activity stream connects: the console header should read
   `STREAM LIVE` rather than `STREAM OFFLINE`.
