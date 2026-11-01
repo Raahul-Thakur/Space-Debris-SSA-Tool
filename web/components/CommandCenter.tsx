@@ -132,7 +132,7 @@ export default function CommandCenter() {
   }, []);
 
   const refresh = useCallback(async () => {
-    const [nextJobs, nextMonitored, listed] = await Promise.all([
+    const [nextJobs, platformMonitored, ownMonitored, listed] = await Promise.all([
       // null means the request failed; an empty array means the API
       // answered and there is genuinely nothing. Collapsing the two is what
       // produced "the public catalogue is empty" while it held 20 objects.
@@ -143,7 +143,15 @@ export default function CommandCenter() {
       authenticatedRef.current
         ? api<Job[]>("/screening-jobs").catch(() => null)
         : Promise.resolve<Job[]>([]),
-      api<MonitoredObject[]>("/monitoring").catch(() => null),
+      // The platform's watch list comes through the edge cache, which keeps
+      // answering while the API sleeps. Asking the API directly for it is
+      // what left the globe empty on every cold start.
+      publicApi<MonitoredObject[]>("/monitoring/platform").catch(() => null),
+      // Only a signed-in caller has objects of their own, and those cannot be
+      // cached, so they still need the live API.
+      authenticatedRef.current
+        ? api<MonitoredObject[]>("/monitoring").catch(() => null)
+        : Promise.resolve<MonitoredObject[] | null>(null),
       // A plain read, not `events list` through the command endpoint: polling
       // must not fill the audit log and the activity feed with its own traffic.
       publicApi<{ events: RiskEvent[]; generated_at: string | null }>(
@@ -151,9 +159,15 @@ export default function CommandCenter() {
       ).catch(() => null)
     ]);
 
-    // /monitoring is open to everyone, so its failure means the API is
-    // unreachable rather than that this caller lacks permission.
-    const reachable = nextMonitored !== null;
+    // The account's own list includes the platform's, so it wins when it
+    // arrives; while the API is waking, the cached platform list stands in.
+    const nextMonitored = ownMonitored ?? platformMonitored;
+    // A signed-in caller needs the live API to act, so its absence is worth
+    // saying even when the cached picture is on screen. A visitor only reads,
+    // and the cache is enough.
+    const reachable = authenticatedRef.current
+      ? ownMonitored !== null
+      : platformMonitored !== null;
     setConnection(reachable ? "ready" : "unreachable");
 
     // Keep whatever was last known good: a blip should not blank the globe.
@@ -169,7 +183,9 @@ export default function CommandCenter() {
       setRiskEvents(listed.events ?? []);
       setGeneratedAt(listed.generated_at ?? null);
     }
-    if (!reachable) return;
+    // Tracks are cached at the edge too, so they are worth asking for whenever
+    // there is a list to draw, even with the API asleep.
+    if (nextMonitored === null && !objects.length) return;
     const ids = objects.length
       ? objects.map((object) => object.norad_id)
       : ["25544"];

@@ -62,6 +62,15 @@ and it returns the platform's watch list to anonymous callers — but a
 signed-in caller additionally sees their own objects. It is deliberately
 absent, and `web/tests/public-proxy.test.ts` fails if it is added.
 
+Leaving it out had a cost: the console asked the API for it directly, so
+whenever the instance was asleep a visitor saw the globe with nothing on the
+watch list. `/monitoring/platform` is the fix. It returns the platform's rows
+alone and takes no principal, so it is safe to cache. The console paints from
+it and lays a signed-in caller's own objects over the top once the API
+answers. The framework keeps serving the last good copy when a revalidation
+fails, so the picture survives a sleeping instance indefinitely, not just for
+the cache interval.
+
 ### The shared secret
 
 The API meters anonymous traffic by client address. Behind a cache every

@@ -1129,6 +1129,21 @@ def create_app(database_url: str | None = None) -> FastAPI:
     def list_monitoring(session: SessionDep, principal: OptionalPrincipalDep):
         # The platform's own watch list is the public globe; a signed-in
         # caller additionally sees the objects they added.
+        return _monitoring_rows(session, principal)
+
+    @app.get("/monitoring/platform", response_model=list[MonitoredObjectView])
+    def list_platform_monitoring(session: SessionDep):
+        """The platform's watch list alone, identical for every caller.
+
+        Exists so the public globe can be served from the edge cache while the
+        API sleeps. ``/monitoring`` cannot be: it adds the caller's own objects,
+        so a cached copy would hand one account's watch list to the next
+        visitor. This route takes no principal at all, which is what makes it
+        safe to share.
+        """
+        return _monitoring_rows(session, None)
+
+    def _monitoring_rows(session: Session, principal: Principal | None) -> list[dict]:
         statement = scope(
             select(MonitoredObjectRecord, SpaceObjectRecord)
             .join(SpaceObjectRecord)

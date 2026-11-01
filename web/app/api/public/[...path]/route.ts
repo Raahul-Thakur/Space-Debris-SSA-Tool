@@ -51,6 +51,9 @@ const PROXY_TOKEN = process.env.SDEBRIS_PROXY_TOKEN;
 const ROUTES: { pattern: RegExp; revalidate: number }[] = [
   { pattern: /^ontology$/, revalidate: 3600 },
   { pattern: /^methodology$/, revalidate: 3600 },
+  // The platform's watch list only. Plain `monitoring` stays off this list:
+  // it adds the caller's own objects, which must never be shared.
+  { pattern: /^monitoring\/platform$/, revalidate: 300 },
   { pattern: /^objects$/, revalidate: 300 },
   { pattern: /^objects\/[\w-]{1,16}$/, revalidate: 300 },
   { pattern: /^objects\/[\w-]{1,16}\/trajectory$/, revalidate: 300 },

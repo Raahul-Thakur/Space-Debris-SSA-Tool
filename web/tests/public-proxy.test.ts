@@ -84,6 +84,16 @@ it("cannot be walked out of its own prefix", async () => {
   expect(fetchMock).not.toHaveBeenCalled();
 });
 
+it("caches the platform's watch list but not the caller's", async () => {
+  const route = await load();
+  // The shared copy is what keeps the globe populated while the API sleeps.
+  expect((await call(route, "monitoring/platform")).status).toBe(200);
+  expect(fetchMock.mock.calls[0][0]).toBe("https://api.example.test/monitoring/platform");
+  // The neighbouring path adds the caller's own objects and stays refused.
+  expect((await call(route, "monitoring")).status).toBe(404);
+  expect(fetchMock).toHaveBeenCalledTimes(1);
+});
+
 it("passes an allow-listed read upstream", async () => {
   const route = await load();
   const response = await call(route, "events/assessed");

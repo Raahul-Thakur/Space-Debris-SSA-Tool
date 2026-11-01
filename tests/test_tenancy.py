@@ -220,6 +220,39 @@ def test_the_public_watch_list_survives_serialisation(client: TestClient) -> Non
     assert any(row["added_by"] is None for row in rows)
 
 
+def test_the_cacheable_watch_list_never_includes_an_accounts_own_objects(
+    client: TestClient,
+) -> None:
+    """``/monitoring/platform`` is served from a cache every visitor shares.
+
+    So it must answer the same for everyone, whoever asks: the platform's rows
+    and nothing a principal added, even when the caller is that principal.
+    """
+    from sdebris.ontology.orm import MonitoredObjectRecord, SpaceObjectRecord
+
+    with client.app.state.database.session_factory() as session:
+        public = SpaceObjectRecord(norad_id="33333", name="PLATFORM SAT")
+        private = SpaceObjectRecord(norad_id="44444", name="PRIVATE SAT")
+        session.add_all([public, private])
+        session.flush()
+        session.add(MonitoredObjectRecord(space_object_id=public.id, added_by=None))
+        session.add(
+            MonitoredObjectRecord(space_object_id=private.id, added_by="alice@localhost")
+        )
+        session.commit()
+
+    alice = _headers(client, "alice", "analyst")
+    own = {row["norad_id"] for row in client.get("/monitoring", headers=alice).json()}
+    assert {"33333", "44444"} <= own
+
+    for headers in (alice, {}):
+        response = client.get("/monitoring/platform", headers=headers)
+        assert response.status_code == 200, response.text
+        ids = {row["norad_id"] for row in response.json()}
+        assert "33333" in ids
+        assert "44444" not in ids
+
+
 def test_watching_an_object_does_not_take_it_from_another_principal(
     client: TestClient,
 ) -> None:
