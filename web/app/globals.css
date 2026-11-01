@@ -1816,3 +1816,10 @@ button { color: inherit; }
   color: var(--ink);
   font: 400 12px/1.6 var(--mono);
 }
+
+/* ---------------------------------------------------------------- tour
+   The palette stays mounted throughout the tour so its own step can find it,
+   but it is hidden on every other step: left visible, it covered the panels
+   those steps point at. `visibility` rather than unmounting keeps it in place
+   for a return to its step. */
+html[data-tour-step]:not([data-tour-step="samples"]) .suggestions { visibility: hidden; }

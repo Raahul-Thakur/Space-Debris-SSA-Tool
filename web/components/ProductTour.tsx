@@ -7,6 +7,26 @@ import type { Driver } from "driver.js";
 const TOUR_VERSION = "1";
 const STORAGE_KEY = `astra.tour.completed.v${TOUR_VERSION}`;
 
+/**
+ * The tour's current anchor, published on the root element for CSS.
+ *
+ * The command palette has to stay mounted for the whole tour so its step can
+ * be found, but left visible it sat over the panels the later steps point at.
+ * Stylesheet rules read this to hide it on every step but its own, without
+ * unmounting it -- going back to its step must still find it.
+ */
+const STEP_ATTRIBUTE = "data-tour-step";
+
+/** `[data-tour="object-list"]` -> `object-list`; a step with no anchor is `intro`. */
+function anchorName(element: string | undefined): string {
+  return element?.match(/data-tour="([^"]+)"/)?.[1] ?? "intro";
+}
+
+function publishStep(name: string | null) {
+  if (name === null) document.documentElement.removeAttribute(STEP_ATTRIBUTE);
+  else document.documentElement.setAttribute(STEP_ATTRIBUTE, name);
+}
+
 type Step = {
   element?: string;
   title: string;
@@ -113,6 +133,7 @@ export default function ProductTour({
   /** Driver's own teardown hook: the instance is already gone by this point. */
   const finish = useCallback(() => {
     driverRef.current = null;
+    publishStep(null);
     if (silentRef.current) return;
     try {
       window.localStorage.setItem(STORAGE_KEY, new Date().toISOString());
@@ -156,6 +177,11 @@ export default function ProductTour({
         element: step.element,
         popover: { title: step.title, description: step.description }
       })),
+      // Published before the step is drawn, so a panel hidden for this step
+      // is gone before the spotlight measures what it is pointing at.
+      onHighlightStarted: (_element, step) => {
+        publishStep(anchorName(typeof step.element === "string" ? step.element : undefined));
+      },
       onDestroyed: finish
     });
     driverRef.current = instance;

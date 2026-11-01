@@ -105,3 +105,23 @@ it("records completion so the tour is not auto-offered again", async () => {
 
   expect(window.localStorage.getItem("astra.tour.completed.v1")).toBeTruthy();
 });
+
+it("tells the page which step is showing, and forgets when the tour ends", async () => {
+  // The palette is hidden by CSS on every step but its own; without this it
+  // covered the monitored list while the tour was pointing at it.
+  render(<ProductTour request={1} />);
+  await settle();
+  const config = driver.mock.calls[0][0] as TourConfig & {
+    onHighlightStarted: (element: Element | undefined, step: { element?: string }) => void;
+  };
+
+  config.onHighlightStarted(undefined, { element: '[data-tour="object-list"]' });
+  expect(document.documentElement.getAttribute("data-tour-step")).toBe("object-list");
+  config.onHighlightStarted(undefined, { element: '[data-tour="samples"]' });
+  expect(document.documentElement.getAttribute("data-tour-step")).toBe("samples");
+  config.onHighlightStarted(undefined, {});
+  expect(document.documentElement.getAttribute("data-tour-step")).toBe("intro");
+
+  act(() => config.onDestroyed());
+  expect(document.documentElement.hasAttribute("data-tour-step")).toBe(false);
+});
