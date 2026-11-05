@@ -7,6 +7,7 @@ import ThemeToggle from "@/components/ThemeToggle";
 import { api } from "@/lib/api";
 import { initializeAuth } from "@/lib/auth";
 import { rememberReturnTo } from "@/lib/returnTo";
+import SiteFooter from "@/components/SiteFooter";
 
 type Offer = {
   code: string;
@@ -220,11 +221,8 @@ export default function Pricing() {
           <Link href="/terms">
             Terms <span aria-hidden="true">-&gt;</span>
           </Link>
-          <p>
-            Educational screening platform. Outputs are illustrative and must not be used
-            for operational maneuver decisions.
-          </p>
         </footer>
+        <SiteFooter />
       </main>
     </div>
   );

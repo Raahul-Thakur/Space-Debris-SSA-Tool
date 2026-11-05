@@ -1,5 +1,7 @@
 import type { Metadata } from "next";
 import Link from "next/link";
+import SiteFooter from "@/components/SiteFooter";
+import { CONTACT_EMAIL } from "@/lib/contact";
 
 export const metadata: Metadata = {
   title: "Privacy · Astra / SSA",
@@ -16,7 +18,6 @@ export const metadata: Metadata = {
  * after `ledger_payload` strips card and address details.
  */
 const UPDATED = "1 November 2026";
-const CONTACT = "raahul.thakurr01@gmail.com";
 
 const SECTIONS = [
   { id: "summary", label: "The short version" },
@@ -255,7 +256,7 @@ export default function PrivacyPage() {
         <section id="deletion">
           <h2>Deleting your account</h2>
           <p>
-            Email <a href={`mailto:${CONTACT}`}>{CONTACT}</a> from the address you signed up
+            Email <a href={`mailto:${CONTACT_EMAIL}`}>{CONTACT_EMAIL}</a> from the address you signed up
             with and the account will be deleted along with the screening runs, watch-list
             entries and command history attached to it. You can also ask for a copy of
             what is held, or for a correction to it.
@@ -279,11 +280,8 @@ export default function PrivacyPage() {
           <Link href="/">
             Back to the console <span aria-hidden="true">-&gt;</span>
           </Link>
-          <p>
-            Educational screening platform. Outputs are illustrative and must not be used
-            for operational maneuver decisions.
-          </p>
         </footer>
+        <SiteFooter />
       </main>
     </div>
   );

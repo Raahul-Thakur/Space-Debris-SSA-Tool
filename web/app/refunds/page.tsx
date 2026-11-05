@@ -1,5 +1,7 @@
 import type { Metadata } from "next";
 import Link from "next/link";
+import SiteFooter from "@/components/SiteFooter";
+import { CONTACT_EMAIL } from "@/lib/contact";
 
 export const metadata: Metadata = {
   title: "Refunds · Astra / SSA",
@@ -12,7 +14,6 @@ export const metadata: Metadata = {
  * no-argument window is the cheaper policy as well as the fairer one.
  */
 const UPDATED = "1 November 2026";
-const CONTACT = "raahul.thakurr01@gmail.com";
 const WINDOW_DAYS = 14;
 
 export default function RefundsPage() {
@@ -60,7 +61,7 @@ export default function RefundsPage() {
           <h2>How to ask</h2>
           <p>
             Reply to your receipt email from Dodo Payments, or write to{" "}
-            <a href={`mailto:${CONTACT}`}>{CONTACT}</a> from the address you paid with.
+            <a href={`mailto:${CONTACT_EMAIL}`}>{CONTACT_EMAIL}</a> from the address you paid with.
             Refunds go back to the original payment method through Dodo Payments, usually
             within 5–10 business days depending on your bank.
           </p>
@@ -87,6 +88,7 @@ export default function RefundsPage() {
             apply to the payment itself.
           </p>
         </footer>
+        <SiteFooter />
       </main>
     </div>
   );

@@ -3,6 +3,7 @@ import Link from "next/link";
 import DocsSamples from "@/components/DocsSamples";
 import RestartTourButton from "@/components/RestartTourButton";
 import ThemeToggle from "@/components/ThemeToggle";
+import SiteFooter from "@/components/SiteFooter";
 
 export const metadata: Metadata = {
   title: "Documentation · Astra / SSA",
@@ -402,11 +403,8 @@ export default function DocsPage() {
             Back to the console <span aria-hidden="true">-&gt;</span>
           </Link>
           <Link href="/privacy">Privacy</Link>
-          <p>
-            Educational screening platform. Outputs are illustrative and must not be used
-            for operational maneuver decisions.
-          </p>
         </footer>
+        <SiteFooter />
       </main>
     </div>
   );

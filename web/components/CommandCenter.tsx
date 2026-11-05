@@ -13,9 +13,11 @@ import {
   useState,
   useSyncExternalStore
 } from "react";
+import SiteFooter from "@/components/SiteFooter";
 import ThemeToggle from "@/components/ThemeToggle";
 import { api, isQuotaError, publicApi, streamSse } from "@/lib/api";
 import { getSupabase, initializeAuth, signOut } from "@/lib/auth";
+import { CONTACT_EMAIL } from "@/lib/contact";
 import { consumeReturnTo } from "@/lib/returnTo";
 import {
   getSeenEventsServerSnapshot,
@@ -104,6 +106,9 @@ export default function CommandCenter() {
   const [activeSuggestion, setActiveSuggestion] = useState(-1);
   // Incremented to ask ProductTour for a run; never reset.
   const [tourRequest, setTourRequest] = useState(deepLink.tour ? 1 : 0);
+  // Phones only: the topbar's links fold into a menu, because seven controls
+  // do not fit across a 390px screen. Desktop never renders the toggle.
+  const [menuOpen, setMenuOpen] = useState(false);
   const [now, setNow] = useState(() => Date.now());
   const [generatedAt, setGeneratedAt] = useState<string | null>(null);
   // Whether the last read reached the API. Without this, a failed request and
@@ -597,6 +602,15 @@ export default function CommandCenter() {
   );
   const utc = useMemo(() => new Date(now).toISOString().slice(11, 19), [now]);
 
+  useEffect(() => {
+    if (!menuOpen) return;
+    const close = (event: globalThis.KeyboardEvent) => {
+      if (event.key === "Escape") setMenuOpen(false);
+    };
+    window.addEventListener("keydown", close);
+    return () => window.removeEventListener("keydown", close);
+  }, [menuOpen]);
+
   if (!authReady) return <main className="auth-loading">LOADING ORBITAL PICTURE</main>;
 
   return (
@@ -622,7 +636,27 @@ export default function CommandCenter() {
                 : `STREAM ${feed.status.toUpperCase()}`}
           </em>
         </div>
-        <div className="topbar-actions">
+        <button
+          type="button"
+          className="topbar-menu"
+          aria-expanded={menuOpen}
+          aria-controls="topbar-actions"
+          onClick={() => setMenuOpen((open) => !open)}
+        >
+          {menuOpen ? "CLOSE" : "MENU"}
+        </button>
+        <div
+          id="topbar-actions"
+          className={`topbar-actions${menuOpen ? " open" : ""}`}
+          onClick={(event) => {
+            // Following a link or starting the tour should not leave the menu
+            // covering the page; switching theme should, so it can be seen.
+            const target = event.target as HTMLElement;
+            if (target.closest("a, button") && !target.closest(".theme-toggle")) {
+              setMenuOpen(false);
+            }
+          }}
+        >
           {freshness && (
             <span className="freshness" title={`Last screening completed ${generatedAt}`}>
               SCREENED {freshness}
@@ -774,6 +808,11 @@ export default function CommandCenter() {
             </button>
           ))}
         </section>
+
+        <p className="rail-contact">
+          <span>CONTACT</span>
+          <a href={`mailto:${CONTACT_EMAIL}`}>{CONTACT_EMAIL}</a>
+        </p>
       </aside>
 
       <section className="orbital-stage" data-tour="globe">
@@ -1050,6 +1089,8 @@ export default function CommandCenter() {
         )}
         {!error && notice && <p className="command-notice">{notice}</p>}
       </form>
+
+      <SiteFooter className="console-footer" />
     </main>
   );
 }

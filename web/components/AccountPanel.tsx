@@ -7,6 +7,7 @@ import ThemeToggle from "@/components/ThemeToggle";
 import { api } from "@/lib/api";
 import { initializeAuth, signOut, signOutEverywhere } from "@/lib/auth";
 import type { Job } from "@/lib/types";
+import SiteFooter from "@/components/SiteFooter";
 
 type Billing = {
   plan: string;
@@ -364,10 +365,7 @@ export default function AccountPanel() {
         </div>
       </section>
 
-      <p className="science-notice">
-        Educational screening platform. Outputs are illustrative and must not be used
-        for operational maneuver decisions.
-      </p>
+      <SiteFooter />
     </main>
   );
 }

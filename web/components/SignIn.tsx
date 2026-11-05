@@ -11,6 +11,7 @@ import {
   type OAuthProvider
 } from "@/lib/auth";
 import { consumeReturnTo } from "@/lib/returnTo";
+import SiteFooter from "@/components/SiteFooter";
 
 /**
  * Supabase refuses a second code for the same address inside a minute.
@@ -267,13 +268,8 @@ export default function SignIn() {
 
         <p className="signin-back">
           <Link href="/">← Back to the public picture</Link>
-          {" · "}
-          <Link href="/privacy">Privacy</Link>
         </p>
-        <p className="science-notice">
-          Educational screening platform. Outputs are illustrative and must not be used
-          for operational maneuver decisions.
-        </p>
+        <SiteFooter className="site-footer-panel" />
       </section>
       {/* A ruled ink block: the page's dominant mass, carrying no illustration. */}
       <div className="signin-orbit" aria-hidden="true" />

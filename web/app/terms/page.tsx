@@ -1,5 +1,7 @@
 import type { Metadata } from "next";
 import Link from "next/link";
+import SiteFooter from "@/components/SiteFooter";
+import { CONTACT_EMAIL } from "@/lib/contact";
 
 export const metadata: Metadata = {
   title: "Terms · Astra / SSA",
@@ -14,7 +16,6 @@ export const metadata: Metadata = {
  * purchase as buying an operational collision-avoidance service.
  */
 const UPDATED = "1 November 2026";
-const CONTACT = "raahul.thakurr01@gmail.com";
 
 const SECTIONS = [
   { id: "summary", label: "The short version" },
@@ -217,7 +218,7 @@ export default function TermsPage() {
             keep any protections the law of your own country gives you.
           </p>
           <p>
-            Questions or complaints go to <a href={`mailto:${CONTACT}`}>{CONTACT}</a>.
+            Questions or complaints go to <a href={`mailto:${CONTACT_EMAIL}`}>{CONTACT_EMAIL}</a>.
           </p>
         </section>
 
@@ -234,11 +235,8 @@ export default function TermsPage() {
           <Link href="/refunds">
             Refund policy <span aria-hidden="true">-&gt;</span>
           </Link>
-          <p>
-            Educational screening platform. Outputs are illustrative and must not be used
-            for operational maneuver decisions.
-          </p>
         </footer>
+        <SiteFooter />
       </main>
     </div>
   );
