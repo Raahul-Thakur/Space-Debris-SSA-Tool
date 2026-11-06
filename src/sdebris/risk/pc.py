@@ -1,4 +1,4 @@
-"""Collision probability via Foster's 2D method with Chan's analytic series.
+"""Collision probability from Chan's analytic series in the encounter plane.
 
 Pipeline:
   1. Model each object's position uncertainty as a diagonal RIC covariance that
@@ -6,7 +6,7 @@ Pipeline:
      surrogate -- see docs/methodology.md).
   2. Rotate both covariances into ECI and sum them (combined covariance).
   3. Project the combined covariance and the miss vector onto the conjunction
-     plane (perpendicular to the relative velocity) -- Foster's B-plane.
+     plane (perpendicular to the relative velocity), as in Foster's method.
   4. Evaluate Pc with Chan's series, treating the combined hard-body radius as a
      circular cross-section in the plane.
 
@@ -59,7 +59,7 @@ def probability_of_collision(
     cov_eci_m2: np.ndarray,
     hard_body_radius_m: float,
 ) -> float:
-    """Foster/Chan Pc. Inputs in metres and m/s; covariance is 3x3 ECI in m^2."""
+    """Chan Pc in the encounter plane. Inputs in metres and m/s; covariance is 3x3 ECI in m^2."""
     r_rel = np.asarray(r_rel_m, dtype=float)
     v_rel = np.asarray(v_rel_m_s, dtype=float)
     speed = np.linalg.norm(v_rel)

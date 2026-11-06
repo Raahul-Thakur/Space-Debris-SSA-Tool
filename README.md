@@ -6,15 +6,23 @@
 [![Python](https://img.shields.io/badge/python-3.10%2B-blue.svg)](https://www.python.org)
 [![License: MIT](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
 
-A conjunction-screening engine for **space situational awareness**. It ingests
-live TLEs from CelesTrak, propagates orbits with SGP4, screens an entire catalog
-against a target object, refines each close approach to its time of closest
-approach (TCA), decomposes the geometry into radial/along-track/cross-track
-components, estimates collision probability, and produces structured reports —
+A conjunction-screening engine for **space situational awareness**. It fetches
+public TLEs from CelesTrak (refreshed on each run, with a local cache), propagates
+orbits with SGP4, screens a catalog group, such as a debris cloud, against a
+target object, refines each close approach to its time of closest approach
+(TCA), decomposes the geometry into radial/along-track/cross-track components,
+estimates collision probability, and produces structured reports —
 all exposed through a CLI, a Next.js operator console, and a scheduled CI pipeline.
 
 > ⚠️ **Educational / portfolio tool.** TLE-derived collision probability is
 > *illustrative, not operational* — see [methodology](docs/methodology.md).
+>
+> **Known limits.** Screening samples a fixed time grid (60 s by default), so a
+> very fast crossing that falls between two samples can be missed. TCA and miss
+> distance are refined on interpolated states and are accurate to roughly a
+> kilometre. Pc uses Chan's analytic series, which is an approximation when the
+> covariance is strongly elongated. If CelesTrak cannot be reached, a run falls
+> back to cached (or bundled sample) data.
 
 ---
 
@@ -22,8 +30,8 @@ all exposed through a CLI, a Next.js operator console, and a scheduled CI pipeli
 
 | Phase | Capability |
 |-------|------------|
-| **1 — Foundation** | Live CelesTrak ingestion · SQLite cache with epoch & staleness tracking · vectorised SGP4 propagation · installable `src/` package · pytest suite |
-| **2 — Screening** | Target-centric miss distance · TCA via range-rate bisection · RAC decomposition · Foster/Chan **Pc** · TLE-age-weighted uncertainty · tiered risk · canonical CSV + JSON reports · `sdebris` CLI |
+| **1 — Foundation** | CelesTrak ingestion · SQLite cache with epoch & staleness tracking · vectorised SGP4 propagation · installable `src/` package · pytest suite |
+| **2 — Screening** | Target-centric miss distance · TCA refined by range-rate bisection · RAC decomposition · Chan **Pc** in the encounter plane · TLE-age-weighted uncertainty · tiered risk · canonical CSV + JSON reports · `sdebris` CLI |
 | **3 — Interface** | Next.js operator console · Cesium 3D orbital picture · live activity stream · typed command surface · guided tour and docs |
 | **4 — Automation** | GitHub Actions cron screening · email/webhook alerts with cooldown · MkDocs site · CI/CD |
 
@@ -101,7 +109,7 @@ Report: data/reports/screening_25544_<ts>.csv
 
 ```
 CelesTrak → SQLite cache → SGP4 propagation → coarse screen
-  → TCA refinement → RAC geometry → Pc (Foster/Chan) → risk tiers
+  → TCA refinement → RAC geometry → Pc (Chan) → risk tiers
   → CSV/JSON report · 3D viz · email/webhook alerts
 ```
 
@@ -123,7 +131,7 @@ src/sdebris/
   ingest/            # CelesTrak client + SQLite cache
   propagation/       # vectorised SGP4 -> Ephemeris
   screening/         # screen.py, tca.py, frames.py
-  risk/              # pc.py (Foster/Chan), classify.py
+  risk/              # pc.py (Chan), classify.py
   reports/           # CSV + JSON writer
   alerts/            # email + webhook dispatch
   ontology/          # typed objects, versioned data, actions, audit + lineage
@@ -160,4 +168,5 @@ MIT — see [LICENSE](LICENSE).
 
 - TLE data: [CelesTrak](https://celestrak.org)
 - Propagation: the [`sgp4`](https://pypi.org/project/sgp4/) library
-- Pc method: Foster (1992) & Chan, *Spacecraft Collision Probability*
+- Pc method: Chan, *Spacecraft Collision Probability*, in the encounter-plane
+  formulation of Foster (1992)

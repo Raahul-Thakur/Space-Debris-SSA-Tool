@@ -1,6 +1,6 @@
 """Target-centric conjunction screening.
 
-Screens an entire catalog against one target object (any NORAD id), finds close
+Screens a catalog group against one target object (any NORAD id), finds close
 approaches, refines each to its TCA, decomposes the geometry into RAC components,
 estimates collision probability, and assigns a risk tier.
 """

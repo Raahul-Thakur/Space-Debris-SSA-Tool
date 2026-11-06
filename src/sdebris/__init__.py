@@ -1,6 +1,6 @@
 """sdebris — Space debris SSA tool.
 
-A conjunction-screening engine that ingests live TLE data, propagates orbits
+A conjunction-screening engine that fetches public TLE data, propagates orbits
 with SGP4, finds close approaches to a target object, estimates collision
 probability, and produces structured screening reports.
 """

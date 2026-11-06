@@ -20,6 +20,12 @@ For a chosen **target**, every catalog object is propagated over the same time
 grid. A cheap per-step Euclidean distance gives a coarse minimum; objects whose
 coarse minimum exceeds `coarse_threshold_km` are discarded.
 
+!!! warning "Fast crossings can fall between samples"
+    Relative speeds in LEO reach about 15 km/s, so at the default 60 s step two
+    consecutive samples can be hundreds of kilometres apart. A real close pass
+    whose minimum falls between them can show a sampled distance above the
+    coarse threshold and be discarded. A smaller `--step` reduces this.
+
 ## 3. Time of Closest Approach (TCA)
 
 The coarse grid brackets but rarely lands on the true minimum. At the true TCA
@@ -31,6 +37,11 @@ where $\mathbf{dr}$ and $\mathbf{dv}$ are the relative position and velocity. We
 locate the coarse minimum, then **bisect** $g$ over the neighbouring interval,
 interpolating both state vectors to the root. This refines the miss distance and
 the relative velocity at closest approach.
+
+The states are interpolated linearly between grid samples rather than
+re-propagated, so at a 60 s step the refined TCA and miss distance are accurate
+to roughly a kilometre. Only the closest pass per object pair in the window is
+reported.
 
 ## 4. RAC (RIC) decomposition
 
@@ -45,7 +56,11 @@ Conjunction geometry is usually along-track dominated.
 
 ## 5. Collision probability (Pc)
 
-We use **Foster's 2D method**:
+We use the **encounter-plane** formulation (after Foster), evaluated with
+**Chan's analytic series** rather than Foster's numerical integration. Chan's
+series is exact for a circular covariance and an approximation otherwise; in
+our checks against brute-force integration it differed by roughly 10-25% for
+the strongly elongated covariances the synthetic model produces.
 
 1. Build the **conjunction plane** perpendicular to the relative velocity at TCA.
 2. Project the combined position covariance and the miss vector into that plane.

@@ -44,7 +44,7 @@ def _database_url(override: str | None, config: Config) -> str:
     return override or os.getenv("SDEBRIS_DATABASE_URL") or config.ontology.database_url
 
 
-@click.group(help="Space debris SSA tool — conjunction screening from live TLE data.")
+@click.group(help="Space debris SSA tool — conjunction screening from public TLE data.")
 @click.version_option(__version__, prog_name="sdebris")
 def cli() -> None:
     # So the CLI and the API read the same database and credentials.
