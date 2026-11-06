@@ -59,17 +59,37 @@ class PublicCache:
     unbounded dictionary would be a way for one visitor to exhaust the
     instance's memory by walking ``step_sec`` through its permitted range.
     Least-recently-used eviction keeps that to a fixed cost.
+
+    A count alone did not bound memory, though: entries vary from a few
+    hundred bytes to megabytes, so 256 large ones could exceed the free
+    instance's 512 MB. Entries are therefore also capped by total size, and a
+    single body too large to be worth holding is served but not kept.
     """
 
-    def __init__(self, *, max_entries: int = 256) -> None:
+    def __init__(
+        self,
+        *,
+        max_entries: int = 256,
+        max_bytes: int = 64 * 1024 * 1024,
+        max_entry_bytes: int = 4 * 1024 * 1024,
+    ) -> None:
         self._entries: OrderedDict[str, tuple[float, bytes]] = OrderedDict()
         self._lock = threading.Lock()
         self._max_entries = max_entries
+        self._max_bytes = max_bytes
+        self._max_entry_bytes = max_entry_bytes
+        self._bytes = 0
         self.stats = CacheStats()
+
+    @property
+    def size_bytes(self) -> int:
+        """Total size of the bodies currently held."""
+        return self._bytes
 
     def clear(self) -> None:
         with self._lock:
             self._entries.clear()
+            self._bytes = 0
 
     def get_or_compute(
         self, key: str, ttl_seconds: float, compute: Callable[[], Any]
@@ -94,11 +114,19 @@ class PublicCache:
         self.stats.misses += 1
         body = _encode(compute())
 
+        if len(body) > self._max_entry_bytes:
+            return body
         with self._lock:
+            previous = self._entries.pop(key, None)
+            if previous is not None:
+                self._bytes -= len(previous[1])
             self._entries[key] = (time.monotonic() + ttl_seconds, body)
-            self._entries.move_to_end(key)
-            while len(self._entries) > self._max_entries:
-                self._entries.popitem(last=False)
+            self._bytes += len(body)
+            while self._entries and (
+                len(self._entries) > self._max_entries or self._bytes > self._max_bytes
+            ):
+                _, (_, evicted) = self._entries.popitem(last=False)
+                self._bytes -= len(evicted)
                 self.stats.evictions += 1
         return body
 

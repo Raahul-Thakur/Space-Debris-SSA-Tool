@@ -18,7 +18,10 @@ from sdebris.api.public_cache import PublicCache
 from sdebris.ontology.enums import OperatorRole
 from sdebris.ontology.schemas import ElementSetCreate, SpaceObjectCreate
 from sdebris.ontology.service import OntologyService
-from sdebris.ratelimit import ANONYMOUS_PROPAGATION_UNITS_PER_MINUTE
+from sdebris.ratelimit import (
+    ANONYMOUS_PROPAGATION_UNITS_PER_MINUTE,
+    PROXY_PROPAGATION_UNITS_PER_MINUTE,
+)
 
 #: A real element set, so SGP4 produces real positions rather than NaNs.
 ISS = (
@@ -245,3 +248,50 @@ def test_an_expired_entry_is_recomputed() -> None:
     cache.get_or_compute("k", 0, lambda: calls.append(1) or {"v": 1})
     cache.get_or_compute("k", 0, lambda: calls.append(1) or {"v": 1})
     assert len(calls) == 2
+
+
+def test_the_proxy_has_a_shared_propagation_budget(tmp_path, monkeypatch) -> None:
+    """Exempt from per-address metering, but not from all of it.
+
+    The proxy forwards the visitor's own parameters, so walking ``step_sec``
+    through its range makes every request a cache miss that propagates here.
+    """
+    monkeypatch.setenv("SDEBRIS_PROXY_TOKEN", "a-shared-secret")
+    app = create_app(f"sqlite:///{(tmp_path / 'proxy-budget.sqlite').as_posix()}")
+    with TestClient(app) as client:
+        seed(app, [("25544", "ISS", ISS)])
+        headers = {"x-sdebris-proxy": "a-shared-secret"}
+        # 24 h at 10 s is 73 units; the shared budget allows about 41 of them.
+        attempts = PROXY_PROPAGATION_UNITS_PER_MINUTE // 73 + 5
+        statuses = [
+            client.get(
+                f"/objects/25544/trajectory?step_sec={10 + n % 3}&window_hours=24",
+                headers=headers,
+            ).status_code
+            for n in range(attempts)
+        ]
+    assert 429 in statuses
+    assert statuses[0] == 200
+
+
+def test_the_cache_is_bounded_in_bytes_not_only_in_entries() -> None:
+    cache = PublicCache(max_entries=1000, max_bytes=10_000, max_entry_bytes=5_000)
+    for n in range(50):
+        cache.get_or_compute(f"k{n}", 60, lambda: "x" * 1_000)
+    assert cache.size_bytes <= 10_000
+    assert cache.stats.evictions > 0
+
+
+def test_a_body_too_large_to_hold_is_served_but_not_kept() -> None:
+    cache = PublicCache(max_entries=10, max_bytes=100_000, max_entry_bytes=1_000)
+    calls = []
+
+    def compute():
+        calls.append(1)
+        return "y" * 5_000
+
+    first = cache.get_or_compute("big", 60, compute)
+    second = cache.get_or_compute("big", 60, compute)
+    assert first == second and len(first) > 1_000
+    assert len(calls) == 2
+    assert cache.size_bytes == 0

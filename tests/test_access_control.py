@@ -14,6 +14,8 @@ from sdebris.api.app import create_app
 from sdebris.ratelimit import (
     ANONYMOUS_PROPAGATION_UNITS_PER_MINUTE,
     ANONYMOUS_REQUESTS_PER_MINUTE,
+    MAX_SAMPLES_PER_TRAJECTORY_REQUEST,
+    SIGNED_IN_ALLOWANCE_MULTIPLIER,
     SlidingWindowLimiter,
     client_address,
     propagation_cost,
@@ -149,6 +151,69 @@ def test_an_authenticated_caller_is_not_subject_to_the_anonymous_budget(
         for _ in range(ANONYMOUS_REQUESTS_PER_MINUTE + 5)
     ]
     assert 429 not in codes
+
+
+def test_a_made_up_authorization_header_earns_no_exemption(client: TestClient) -> None:
+    """Any Authorization header used to skip metering, valid or not.
+
+    That made the limiter optional: one invented header and a script could
+    ask for as much propagation as it liked.
+    """
+    headers = {"Authorization": "Bearer not-a-real-token"}
+    codes = [
+        client.get("/ontology", headers=headers).status_code
+        for _ in range(ANONYMOUS_REQUESTS_PER_MINUTE + 5)
+    ]
+    assert 429 in codes, "an invalid token bypassed the anonymous allowance"
+
+
+def test_a_non_bearer_header_earns_no_exemption(client: TestClient) -> None:
+    codes = [
+        client.get("/ontology", headers={"Authorization": "x"}).status_code
+        for _ in range(ANONYMOUS_REQUESTS_PER_MINUTE + 5)
+    ]
+    assert 429 in codes
+
+
+def test_a_signed_in_caller_has_a_larger_allowance_not_an_unlimited_one(
+    client: TestClient,
+) -> None:
+    headers = _token(client)
+    allowance = ANONYMOUS_REQUESTS_PER_MINUTE * SIGNED_IN_ALLOWANCE_MULTIPLIER
+    codes = [
+        client.get("/ontology", headers=headers).status_code
+        for _ in range(allowance + 5)
+    ]
+    assert 429 not in codes[:allowance]
+    assert 429 in codes[allowance:]
+
+
+def test_one_request_cannot_ask_for_an_unbounded_amount_of_propagation(
+    tmp_path, monkeypatch
+) -> None:
+    """Forty objects at 24 h and 10 s steps was 345,600 samples in one response.
+
+    Sent through the website's proxy, whose shared budget is large enough to
+    admit it, so it is the size cap and not the limiter that refuses it.
+    """
+    monkeypatch.setenv("SDEBRIS_PROXY_TOKEN", "a-shared-secret")
+    app = create_app(f"sqlite:///{tmp_path / 'size.sqlite'}")
+    ids = ",".join(str(25000 + n) for n in range(40))
+    with TestClient(app) as client:
+        response = client.get(
+            f"/trajectories?norad_ids={ids}&window_hours=24&step_sec=10",
+            headers={"x-sdebris-proxy": "a-shared-secret"},
+        )
+    assert response.status_code == 422
+    assert str(MAX_SAMPLES_PER_TRAJECTORY_REQUEST) in response.text
+
+
+def test_the_console_default_request_is_well_inside_the_size_cap(
+    client: TestClient,
+) -> None:
+    ids = ",".join(str(25000 + n) for n in range(20))
+    response = client.get(f"/trajectories?norad_ids={ids}&window_hours=3&step_sec=180")
+    assert response.status_code == 200, response.text
 
 
 # ------------------------------------------------------------ address parsing

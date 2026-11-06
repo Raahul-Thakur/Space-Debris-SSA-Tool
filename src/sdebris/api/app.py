@@ -18,6 +18,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse, Response, StreamingResponse
 from sqlalchemy import func, select, text
 from sqlalchemy.orm import Session
+from starlette.concurrency import run_in_threadpool
 
 from sdebris import __version__
 from sdebris.activity import MAX_FEED_ITEMS, collect_activity, feed_cursor
@@ -124,9 +125,13 @@ from sdebris.propagation import make_time_grid, propagate_objects
 from sdebris.ratelimit import (
     ANONYMOUS_PROPAGATION_UNITS_PER_MINUTE,
     ANONYMOUS_REQUESTS_PER_MINUTE,
+    MAX_SAMPLES_PER_TRAJECTORY_REQUEST,
+    PROXY_PROPAGATION_UNITS_PER_MINUTE,
+    SIGNED_IN_ALLOWANCE_MULTIPLIER,
     SlidingWindowLimiter,
     client_address,
     propagation_cost,
+    trajectory_samples,
 )
 from sdebris.runtime import configure_logging, request_log_middleware, validate_environment
 from sdebris.tenancy import owns, scope
@@ -178,6 +183,20 @@ PUBLIC_NARRATIVE_TTL_SECONDS = 900
 #: for its whole catalogue at once, so this has to exceed it comfortably;
 #: it exists to stop a single request from pinning the instance.
 MAX_BATCH_TRAJECTORIES = 40
+
+
+def _check_trajectory_size(window_hours: float, step_sec: int, objects: int) -> None:
+    """Refuse a trajectory request too large to build in this instance's memory."""
+    samples = trajectory_samples(window_hours, step_sec, objects)
+    if samples > MAX_SAMPLES_PER_TRAJECTORY_REQUEST:
+        raise HTTPException(
+            status_code=422,
+            detail=(
+                f"request asks for {samples} samples; the limit is "
+                f"{MAX_SAMPLES_PER_TRAJECTORY_REQUEST}. Use fewer objects, a "
+                "shorter window or a longer step."
+            ),
+        )
 
 ONTOLOGY = OntologyDescription(
     object_types={
@@ -592,36 +611,41 @@ def create_app(database_url: str | None = None) -> FastAPI:
                 )
             },
         )
+    async def _verified_subject(request: Request) -> str | None:
+        """The subject of a valid bearer token on ``request``, else ``None``.
+
+        Verification can fetch signing keys over the network on first use, so
+        it runs off the event loop. An invalid token is not rejected here: the
+        route decides whether it needs one, and this only decides how the
+        request is metered.
+        """
+        header = request.headers.get("authorization", "")
+        scheme, _, token = header.partition(" ")
+        if scheme.lower() != "bearer" or not token.strip():
+            return None
+        try:
+            principal = await run_in_threadpool(
+                request.app.state.authenticator.verify, token.strip()
+            )
+        except HTTPException:
+            return None
+        return principal.subject or principal.actor
+
     @app.middleware("http")
     async def throttle_anonymous(request: Request, call_next):
-        """Meter unauthenticated traffic by client address.
+        """Meter every caller: by account when signed in, else by address.
 
-        Signed-in callers are metered per principal by their plan, and their
-        quotas are accounted against an identity. Anonymous readers have no
-        identity, so the only thing left to key on is the address. Propagation
-        is budgeted separately because it is the one anonymous operation that
-        costs real CPU.
+        Signed-in callers are metered per account, with a larger allowance,
+        and only once their token has actually verified. This used to wave
+        through any request that merely carried an ``Authorization`` header,
+        so a made-up one bypassed every limit. Propagation is budgeted
+        separately because it is the one public operation that costs real CPU.
         """
-        if request.headers.get("authorization"):
-            return await call_next(request)
-
-        # The caching edge is exempt, and has to be. Behind a proxy every
-        # visitor arrives from the same few addresses, so metering by
-        # address would meter the entire internet as one client and refuse
-        # the second person to open the site. Nor is the allowance needed
-        # there: what reaches this process through a cache is bounded by the
-        # cache lifetime, which is a firmer ceiling than any limiter.
-        presented = request.headers.get("x-sdebris-proxy")
-        if proxy_token and presented and secrets.compare_digest(presented, proxy_token):
-            return await call_next(request)
-
-        address = client_address(request)
         path = request.url.path
         params = request.query_params
         batched = path.endswith("/trajectories")
-        if batched or path.endswith("/trajectory"):
-            key = f"anon:propagate:{address}"
-            limit = ANONYMOUS_PROPAGATION_UNITS_PER_MINUTE
+        propagating = batched or path.endswith("/trajectory")
+        if propagating:
             cost = propagation_cost(
                 _float_param(params.get("window_hours"), 3.0),
                 _float_param(params.get("step_sec"), 120.0),
@@ -636,17 +660,44 @@ def create_app(database_url: str | None = None) -> FastAPI:
                 ]
                 cost *= max(1, len(requested))
         else:
-            key = f"anon:read:{address}"
-            limit = ANONYMOUS_REQUESTS_PER_MINUTE
             cost = 1
+
+        # The caching edge is exempt from per-address metering, and has to
+        # be: behind a proxy every visitor arrives from the same few
+        # addresses, so metering by address would meter the entire internet
+        # as one client. Its plain reads are bounded by the cache lifetime.
+        # Propagation is not, because the parameters are the visitor's and
+        # each new value is a miss, so that has one shared budget.
+        presented = request.headers.get("x-sdebris-proxy")
+        if proxy_token and presented and secrets.compare_digest(presented, proxy_token):
+            if not propagating:
+                return await call_next(request)
+            key, limit = "proxy:propagate", PROXY_PROPAGATION_UNITS_PER_MINUTE
+        else:
+            subject = (
+                await _verified_subject(request)
+                if request.headers.get("authorization")
+                else None
+            )
+            if subject is not None:
+                who, scale = f"user:{subject}", SIGNED_IN_ALLOWANCE_MULTIPLIER
+            else:
+                who, scale = f"anon:{client_address(request)}", 1
+            if propagating:
+                key = f"{who}:propagate"
+                limit = ANONYMOUS_PROPAGATION_UNITS_PER_MINUTE * scale
+            else:
+                key = f"{who}:read"
+                limit = ANONYMOUS_REQUESTS_PER_MINUTE * scale
+
         if not anonymous_limiter.check(key, limit, cost=cost):
             retry_after = anonymous_limiter.retry_after(key)
             return JSONResponse(
                 status_code=429,
                 content={
                     "detail": (
-                        "too many requests from this address; sign in for a "
-                        "per-account allowance"
+                        "too many requests; slow down, or sign in for a "
+                        "larger per-account allowance"
                     )
                 },
                 headers={"Retry-After": str(retry_after)},
@@ -1199,6 +1250,7 @@ def create_app(database_url: str | None = None) -> FastAPI:
         window_hours: float = Query(default=3, gt=0, le=24),
         step_sec: int = Query(default=120, ge=10, le=900),
     ) -> Response:
+        _check_trajectory_size(window_hours, step_sec, 1)
         anchor = _grid_anchor(PUBLIC_DATA_TTL_SECONDS)
 
         def compute() -> TrajectoryResponse:
@@ -1241,6 +1293,7 @@ def create_app(database_url: str | None = None) -> FastAPI:
                 status_code=422,
                 detail=f"at most {MAX_BATCH_TRAJECTORIES} objects per request",
             )
+        _check_trajectory_size(window_hours, step_sec, len(set(wanted)))
         anchor = _grid_anchor(PUBLIC_DATA_TTL_SECONDS)
         # Sorted, so that two callers asking for the same set in a different
         # order share one cache entry rather than computing it twice.
