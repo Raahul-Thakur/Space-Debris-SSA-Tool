@@ -1,6 +1,5 @@
 "use client";
 
-import dynamic from "next/dynamic";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import {
@@ -39,9 +38,8 @@ import type {
 import { useActivityFeed } from "@/lib/useActivityFeed";
 import ActivityFeed from "@/components/ActivityFeed";
 import CommandPalette from "@/components/CommandPalette";
+import GlobeStage from "@/components/GlobeStage";
 import ProductTour from "@/components/ProductTour";
-
-const OrbitGlobe = dynamic(() => import("@/components/OrbitGlobe"), { ssr: false });
 
 /** Feed kinds that change what the panels should be showing. */
 const REFRESHING_KINDS = new Set<ActivityItem["kind"]>([
@@ -119,6 +117,8 @@ export default function CommandCenter() {
   );
 
   const inputRef = useRef<HTMLInputElement>(null);
+  const menuButtonRef = useRef<HTMLButtonElement>(null);
+  const menuRef = useRef<HTMLDivElement>(null);
   const refreshTimer = useRef<ReturnType<typeof setTimeout>>(undefined);
   const monitoredRef = useRef<MonitoredObject[]>([]);
   // Read inside `refresh`, which deliberately keeps empty dependencies so
@@ -604,11 +604,29 @@ export default function CommandCenter() {
 
   useEffect(() => {
     if (!menuOpen) return;
-    const close = (event: globalThis.KeyboardEvent) => {
-      if (event.key === "Escape") setMenuOpen(false);
+    const onKey = (event: globalThis.KeyboardEvent) => {
+      if (event.key !== "Escape") return;
+      setMenuOpen(false);
+      // Focus was somewhere in the menu, which is about to be hidden; left
+      // there, it falls back to the document and a keyboard user starts
+      // again from the top of the page. The toggle is where they opened it.
+      menuButtonRef.current?.focus();
     };
-    window.addEventListener("keydown", close);
-    return () => window.removeEventListener("keydown", close);
+    // A tap anywhere outside the menu dismisses it, as a dropdown does
+    // everywhere else. The toggle is excluded because its own click handler
+    // already closes it; counting it here as well would reopen the menu.
+    const onPointer = (event: PointerEvent) => {
+      const target = event.target as Node | null;
+      if (!target) return;
+      if (menuRef.current?.contains(target) || menuButtonRef.current?.contains(target)) return;
+      setMenuOpen(false);
+    };
+    window.addEventListener("keydown", onKey);
+    document.addEventListener("pointerdown", onPointer);
+    return () => {
+      window.removeEventListener("keydown", onKey);
+      document.removeEventListener("pointerdown", onPointer);
+    };
   }, [menuOpen]);
 
   if (!authReady) return <main className="auth-loading">LOADING ORBITAL PICTURE</main>;
@@ -638,6 +656,7 @@ export default function CommandCenter() {
         </div>
         <button
           type="button"
+          ref={menuButtonRef}
           className="topbar-menu"
           aria-expanded={menuOpen}
           aria-controls="topbar-actions"
@@ -647,6 +666,7 @@ export default function CommandCenter() {
         </button>
         <div
           id="topbar-actions"
+          ref={menuRef}
           className={`topbar-actions${menuOpen ? " open" : ""}`}
           onClick={(event) => {
             // Following a link or starting the tour should not leave the menu
@@ -816,7 +836,7 @@ export default function CommandCenter() {
       </aside>
 
       <section className="orbital-stage" data-tour="globe">
-        <OrbitGlobe
+        <GlobeStage
           trajectories={trajectories}
           selectedNoradId={selectedNoradId}
           onSelect={setSelectedNoradId}

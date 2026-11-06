@@ -166,7 +166,8 @@ export default function PrivacyPage() {
           </ul>
           <p>
             No tracking cookies are set, by this site or by anyone else, and there are no
-            third-party scripts on any page.
+            third-party scripts on any page. The typefaces are served from this site too,
+            so loading a page does not contact Google Fonts or any other font service.
           </p>
         </section>
 
