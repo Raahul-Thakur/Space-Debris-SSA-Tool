@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import logging
 import os
 import re
 import secrets
@@ -45,7 +46,6 @@ from sdebris.billing import (
     as_utc,
     check_monitoring_allowed,
     check_screening_allowed,
-    count_lifetime_grants,
     ledger_payload,
     limits_for,
     parse_event,
@@ -53,6 +53,7 @@ from sdebris.billing import (
     usage_for,
     verify_signature,
 )
+from sdebris.billing import seats as founding_seats
 from sdebris.commands import CommandParseError, parse_command
 from sdebris.commands.parser import COMMAND_HELP
 from sdebris.config import load_config, load_env
@@ -135,6 +136,8 @@ from sdebris.ratelimit import (
 )
 from sdebris.runtime import configure_logging, request_log_middleware, validate_environment
 from sdebris.tenancy import owns, scope
+
+billing_log = logging.getLogger("sdebris.billing")
 
 #: Billing provider whose webhooks this deployment accepts.
 BILLING_PROVIDER = "dodo"
@@ -1613,8 +1616,10 @@ def create_app(database_url: str | None = None) -> FastAPI:
         Readable without an account: a visitor should see the price before
         being asked to sign in.
         """
-        taken = count_lifetime_grants(session)
-        remaining = max(0, FOUNDING_SEATS - taken)
+        # Reserved seats count as taken: a buyer at checkout holds one.
+        remaining = founding_seats.seats_remaining(
+            session, FOUNDING_SEATS, excluding=principal.subject if principal else None
+        )
         offers: list[dict[str, object]] = [
             {
                 "code": SUBSCRIPTION.code,
@@ -1668,12 +1673,6 @@ def create_app(database_url: str | None = None) -> FastAPI:
             product_id = products.subscription
         elif payload.offer == FOUNDING_LIFETIME.code:
             product_id = products.lifetime
-            # The only place the cap can be enforced: once a checkout exists
-            # the buyer can pay, and a paid grant is always honoured.
-            if count_lifetime_grants(session) >= FOUNDING_SEATS:
-                raise HTTPException(
-                    status_code=409, detail="The founding seats have all been taken."
-                )
         else:
             raise HTTPException(status_code=404, detail="No such offer.")
         if not product_id:
@@ -1689,6 +1688,25 @@ def create_app(database_url: str | None = None) -> FastAPI:
                     status_code=409,
                     detail="This account already has Pro. Manage it from the account page.",
                 )
+        hold = None
+        if payload.offer == FOUNDING_LIFETIME.code:
+            # A seat is reserved before the buyer can pay, under a lock, so
+            # two checkouts cannot both take the last one. Committed before
+            # the provider call so the reservation holds while they pay.
+            founding_seats.lock(session)
+            already_holding = founding_seats.active_hold(session, principal.subject)
+            if already_holding is None and (
+                founding_seats.seats_remaining(session, FOUNDING_SEATS) <= 0
+            ):
+                raise HTTPException(
+                    status_code=409,
+                    detail=(
+                        "The founding seats are all taken or reserved. A reserved seat "
+                        "comes back within an hour if its checkout is not completed."
+                    ),
+                )
+            hold = founding_seats.reserve(session, principal.subject, principal.email)
+            session.commit()
         try:
             url = DodoClient.from_env().create_checkout(
                 product_id=product_id,
@@ -1698,6 +1716,9 @@ def create_app(database_url: str | None = None) -> FastAPI:
                 return_url=f"{_site_url()}/account?checkout=complete",
             )
         except BillingUnavailable as exc:
+            if hold is not None:
+                founding_seats.release(session, hold)
+                session.commit()
             raise HTTPException(status_code=503, detail=str(exc)) from exc
         session.commit()
         return {"checkout_url": url}
@@ -1762,13 +1783,29 @@ def create_app(database_url: str | None = None) -> FastAPI:
         if already is not None:
             return {"status": "duplicate", "outcome": already.outcome}
 
-        outcome = apply_event(
-            session,
-            event,
-            provider=BILLING_PROVIDER,
-            products=_billing_products(),
-            founding_seats=FOUNDING_SEATS,
-        )
+        try:
+            outcome = apply_event(
+                session,
+                event,
+                provider=BILLING_PROVIDER,
+                products=_billing_products(),
+                founding_seats=FOUNDING_SEATS,
+                actions=DodoClient.from_env,
+            )
+        except BillingUnavailable as exc:
+            # The event needed a cancellation or refund that did not go
+            # through. Nothing is kept, and the error makes the provider
+            # redeliver, so the decision is taken again in full.
+            session.rollback()
+            billing_log.error(
+                "billing event %s (%s) needs a provider call that failed: %s",
+                event.event_id,
+                event.event_type,
+                exc,
+            )
+            raise HTTPException(
+                status_code=503, detail="could not complete this event; retry later"
+            ) from exc
         session.add(
             BillingEventRecord(
                 provider=BILLING_PROVIDER,

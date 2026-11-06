@@ -13,7 +13,7 @@ export const metadata: Metadata = {
  * chargeback costs a fee and counts against the merchant account. A clear
  * no-argument window is the cheaper policy as well as the fairer one.
  */
-const UPDATED = "1 November 2026";
+const UPDATED = "6 November 2026";
 const WINDOW_DAYS = 14;
 
 export default function RefundsPage() {
@@ -66,8 +66,13 @@ export default function RefundsPage() {
             within 5–10 business days depending on your bank.
           </p>
           <p>
-            When a refund is issued, Pro ends on the account straight away and it returns
-            to the Free plan. Your runs and watch list are kept.
+            When a payment is refunded in full, Pro ends on the account straight away and
+            it returns to the Free plan. A subscription is cancelled at the same time, so it
+            does not charge you again. Your runs and watch list are kept.
+          </p>
+          <p>
+            A partial refund, such as a credit for time the service was down, leaves Pro
+            and the subscription as they are.
           </p>
         </section>
 
@@ -75,7 +80,9 @@ export default function RefundsPage() {
           <h2>Chargebacks</h2>
           <p>
             Please ask for a refund before disputing a charge with your bank. It is quicker
-            for you, and a dispute suspends Pro while it is open.
+            for you, and a dispute suspends Pro while it is open. If the dispute is withdrawn
+            or closed without a refund, Pro comes back. If the bank refunds you, the
+            subscription is cancelled as it would be for any other refund.
           </p>
         </section>
 

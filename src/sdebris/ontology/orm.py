@@ -559,6 +559,28 @@ class BillingEventRecord(Base):
     )
 
 
+class FoundingSeatHoldRecord(Base):
+    """A founding seat reserved while its buyer is at checkout.
+
+    The seat count used to be checked only when a checkout started, against
+    grants already paid for, so everyone who opened a checkout at seat 99
+    could pay and be granted. A hold is taken when the checkout starts and
+    counts against the cap until it is used or lapses.
+    """
+
+    __tablename__ = "founding_seat_holds"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=new_id)
+    subject: Mapped[str] = mapped_column(String(255), nullable=False, index=True)
+    email: Mapped[str | None] = mapped_column(String(255))
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=utcnow, nullable=False
+    )
+    expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    #: Set when the purchase it reserved for arrives, or the checkout failed.
+    released_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+
+
 class RoleGrantRecord(Base):
     """Which application role an email receives when its token is minted.
 

@@ -6,8 +6,15 @@ cap can only be enforced by refusing to start a checkout, and the buyer's auth
 subject travels in the checkout's metadata, so the grant reaches the right
 account even if they pay with a different email address.
 
-Endpoints are from Dodo's API reference: ``POST /checkouts`` and
-``POST /customers/{customer_id}/customer-portal/session``.
+Two more calls keep the billing state honest when a webhook says money has
+gone back: a refunded subscription is cancelled so it does not charge again,
+and a founding purchase that arrives after the seats are gone is refunded.
+
+Endpoints and fields are from Dodo's API reference, as published in their
+generated SDK (dodopayments 1.125): ``POST /checkouts``,
+``POST /customers/{customer_id}/customer-portal/session``,
+``GET`` and ``PATCH /subscriptions/{subscription_id}`` (``status:
+"cancelled"`` cancels immediately) and ``POST /refunds``.
 """
 
 from __future__ import annotations
@@ -22,6 +29,9 @@ BASE_URLS = {
     "live": "https://live.dodopayments.com",
 }
 TIMEOUT_SECONDS = 15
+
+#: Subscription states in which there is nothing left to cancel.
+FINISHED_SUBSCRIPTION_STATUSES = frozenset({"cancelled", "expired", "failed"})
 
 
 class BillingUnavailable(Exception):
@@ -43,9 +53,17 @@ class DodoClient:
             raise BillingUnavailable(f"unknown SDEBRIS_DODO_ENVIRONMENT {mode!r}")
         return cls(api_key=api_key, base_url=BASE_URLS[mode])
 
-    def _post(self, path: str, *, json: dict | None = None, params: dict | None = None) -> dict:
+    def _call(
+        self,
+        method: str,
+        path: str,
+        *,
+        json: dict | None = None,
+        params: dict | None = None,
+    ) -> dict:
+        send = {"get": requests.get, "post": requests.post, "patch": requests.patch}[method]
         try:
-            response = requests.post(
+            response = send(
                 f"{self.base_url}{path}",
                 json=json,
                 params=params,
@@ -56,6 +74,9 @@ class DodoClient:
             return response.json()
         except (requests.RequestException, ValueError) as exc:
             raise BillingUnavailable("the payment provider did not answer") from exc
+
+    def _post(self, path: str, *, json: dict | None = None, params: dict | None = None) -> dict:
+        return self._call("post", path, json=json, params=params)
 
     def create_checkout(
         self,
@@ -87,3 +108,33 @@ class DodoClient:
         if not link:
             raise BillingUnavailable("the payment provider returned no portal link")
         return str(link)
+
+    def cancel_subscription(self, subscription_id: str, *, comment: str) -> str:
+        """Cancel a subscription now, and return the status it ended in.
+
+        Safe to repeat: a webhook that is retried after a partial failure
+        calls this again, so a subscription that has already finished is
+        left alone rather than sent a second cancellation.
+        """
+        current = self._call("get", f"/subscriptions/{subscription_id}")
+        status = str(current.get("status") or "")
+        if status in FINISHED_SUBSCRIPTION_STATUSES:
+            return status
+        updated = self._call(
+            "patch",
+            f"/subscriptions/{subscription_id}",
+            json={
+                "status": "cancelled",
+                "cancel_reason": "cancelled_by_merchant",
+                "cancellation_comment": comment,
+            },
+        )
+        return str(updated.get("status") or "cancelled")
+
+    def refund_payment(self, payment_id: str, *, reason: str) -> str:
+        """Refund a payment in full and return the refund id."""
+        refund = self._post("/refunds", json={"payment_id": payment_id, "reason": reason})
+        refund_id = refund.get("refund_id")
+        if not refund_id:
+            raise BillingUnavailable("the payment provider returned no refund")
+        return str(refund_id)

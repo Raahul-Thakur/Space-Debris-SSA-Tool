@@ -56,6 +56,12 @@ class BillingEvent:
     #: End of the paid period for a recurring purchase, if the provider sent one.
     period_end: datetime | None
     payload: dict[str, Any]
+    #: When the event happened, from the payload's ``timestamp``. Not the
+    #: ``webhook-timestamp`` header: that is the time of each delivery
+    #: attempt, so a retry carries a newer one than the event it repeats.
+    occurred_at: datetime | None = None
+    #: A refund that returned only part of the payment.
+    is_partial: bool = False
 
     @property
     def is_subscription(self) -> bool:
@@ -143,6 +149,10 @@ REVERSAL_EVENTS = {
 }
 #: A dispute settled in the seller's favour restores what it suspended.
 DISPUTE_WON = "dispute.won"
+#: Every dispute outcome that should restore access: won by the seller,
+#: withdrawn by the customer, or lapsed without a decision. Only ``won`` was
+#: handled before, so a withdrawn dispute left Pro suspended for good.
+DISPUTE_RESTORING_EVENTS = frozenset({DISPUTE_WON, "dispute.cancelled", "dispute.expired"})
 #: Cancellation stops renewal; it does not take back the period already paid.
 SUBSCRIPTION_CANCELLED = "subscription.cancelled"
 
@@ -203,6 +213,8 @@ def parse_event(event_id: str, payload: dict[str, Any]) -> BillingEvent:
         subject=str(subject) if subject else None,
         period_end=period_end,
         payload=payload,
+        occurred_at=_parse_moment(payload.get("timestamp")),
+        is_partial=_first(payload, ("data", "is_partial")) is True,
     )
 
 

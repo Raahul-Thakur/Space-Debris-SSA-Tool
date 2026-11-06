@@ -15,7 +15,7 @@ export const metadata: Metadata = {
  * with a synthetic covariance model, and nobody should be able to read a
  * purchase as buying an operational collision-avoidance service.
  */
-const UPDATED = "1 November 2026";
+const UPDATED = "6 November 2026";
 
 const SECTIONS = [
   { id: "summary", label: "The short version" },
@@ -139,7 +139,9 @@ export default function TermsPage() {
           <h2>Pro plan and payment</h2>
           <p>
             Pro is sold as a monthly subscription and, while seats remain, as a one-time
-            founding purchase. The limits each plan allows are shown on the{" "}
+            founding purchase. There are 100 founding seats. Starting a founding checkout
+            reserves one for an hour; if no seat is left when a founding payment arrives, it
+            is refunded in full. The limits each plan allows are shown on the{" "}
             <Link href="/pricing">pricing page</Link>, which is the definitive statement of
             what you are buying.
           </p>

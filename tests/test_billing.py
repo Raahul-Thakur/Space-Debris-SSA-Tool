@@ -215,8 +215,13 @@ def test_a_refund_revokes_a_founding_seat(tmp_path, monkeypatch) -> None:
 
 
 def test_a_refunded_renewal_revokes_the_subscription(tmp_path, monkeypatch) -> None:
-    """A refund names only the payment; the ledger links it to the subscription."""
+    """A refund names only the payment; the ledger links it to the subscription.
+
+    It also cancels the subscription with the provider. Withdrawing access
+    alone left it renewing, so the customer was charged again next month.
+    """
     _sell(monkeypatch)
+    calls = _fake_provider(monkeypatch)
     app = create_app(f"sqlite:///{(tmp_path / 'b4b.db').as_posix()}")
     renewal = datetime.now(timezone.utc) + timedelta(days=30)
 
@@ -233,10 +238,15 @@ def test_a_refunded_renewal_revokes_the_subscription(tmp_path, monkeypatch) -> N
             "type": "refund.succeeded",
             "data": {"payload_type": "Refund", "refund_id": "ref_2", "payment_id": "pay_sub_1"},
         }
-        assert (await _deliver(client, refund, "evt_sr")).json()["outcome"] == "revoked"
+        outcome = (await _deliver(client, refund, "evt_sr")).json()["outcome"]
+        assert outcome == "revoked-and-cancelled"
         assert (await _plan(client, app))["plan"] == "free"
 
     _run(app, scenario)
+    cancels = [call for call in calls if call["method"] == "patch"]
+    assert len(cancels) == 1
+    assert cancels[0]["url"] == "https://test.dodopayments.com/subscriptions/sub_r"
+    assert cancels[0]["json"]["status"] == "cancelled"
 
 
 def test_a_won_dispute_restores_access(tmp_path, monkeypatch) -> None:
@@ -563,18 +573,30 @@ class _FakeResponse:
         return self._body
 
 
-def _fake_provider(monkeypatch) -> list[dict]:
+def _fake_provider(monkeypatch, *, subscription_status: str = "active") -> list[dict]:
     """Stand in for Dodo's API, recording what was sent."""
     calls: list[dict] = []
 
     def post(url, *, json=None, params=None, headers=None, timeout=None):
-        calls.append({"url": url, "json": json, "params": params, "headers": headers})
+        calls.append({"method": "post", "url": url, "json": json, "params": params, "headers": headers})
         if url.endswith("/checkouts"):
             return _FakeResponse({"session_id": "cks_1", "checkout_url": "https://pay.test/c"})
+        if url.endswith("/refunds"):
+            return _FakeResponse({"refund_id": "ref_auto", "payment_id": json["payment_id"]})
         return _FakeResponse({"link": "https://pay.test/portal"})
+
+    def get(url, *, json=None, params=None, headers=None, timeout=None):
+        calls.append({"method": "get", "url": url})
+        return _FakeResponse({"subscription_id": url.rsplit("/", 1)[-1], "status": subscription_status})
+
+    def patch(url, *, json=None, params=None, headers=None, timeout=None):
+        calls.append({"method": "patch", "url": url, "json": json})
+        return _FakeResponse({"subscription_id": url.rsplit("/", 1)[-1], "status": "cancelled"})
 
     monkeypatch.setenv("SDEBRIS_DODO_API_KEY", "test-key")
     monkeypatch.setattr("sdebris.billing.dodo.requests.post", post)
+    monkeypatch.setattr("sdebris.billing.dodo.requests.get", get)
+    monkeypatch.setattr("sdebris.billing.dodo.requests.patch", patch)
     return calls
 
 
@@ -735,3 +757,318 @@ def test_the_ledger_does_not_keep_card_or_address_details(tmp_path, monkeypatch)
         assert "card_last_four" not in stored.payload["data"]
         assert "billing" not in stored.payload["data"]
         assert stored.payload["data"]["customer"]["email"] == BUYER
+
+
+# ------------------------------------------------- refunds cancel subscriptions
+def _at(minutes: int) -> str:
+    """An event time, so tests can deliver events out of order."""
+    base = datetime(2026, 11, 1, tzinfo=timezone.utc)
+    return (base + timedelta(minutes=minutes)).isoformat()
+
+
+def _subscribed(renewal: datetime, *, when: int = 0) -> list[tuple[dict, str]]:
+    """The deliveries that start a subscription paid by ``pay_s``."""
+    paid = _payment("pay_s", product_cart=None, subscription_id="sub_x")
+    active = _subscription("subscription.active", "sub_x", next_billing_date=renewal.isoformat())
+    active["timestamp"] = _at(when)
+    return [(paid, "evt_paid"), (active, "evt_active")]
+
+
+def _refund(payment_id: str, *, partial: bool = False, when: int = 10) -> dict:
+    return {
+        "type": "refund.succeeded",
+        "timestamp": _at(when),
+        "data": {
+            "payload_type": "Refund",
+            "refund_id": f"ref_{payment_id}",
+            "payment_id": payment_id,
+            "is_partial": partial,
+        },
+    }
+
+
+def test_a_refunded_subscription_is_not_handed_back_by_its_next_renewal(
+    tmp_path, monkeypatch
+) -> None:
+    _sell(monkeypatch)
+    _fake_provider(monkeypatch)
+    app = create_app(f"sqlite:///{(tmp_path / 'r1.db').as_posix()}")
+    renewal = datetime.now(timezone.utc) + timedelta(days=30)
+
+    async def scenario(client: httpx.AsyncClient) -> None:
+        for payload, event_id in _subscribed(renewal):
+            await _deliver(client, payload, event_id)
+        await _deliver(client, _refund("pay_s"), "evt_refund")
+        renewed = _subscription(
+            "subscription.renewed", "sub_x",
+            next_billing_date=(renewal + timedelta(days=30)).isoformat(),
+        )
+        renewed["timestamp"] = _at(60)
+        response = await _deliver(client, renewed, "evt_renewed")
+        assert response.json()["outcome"] == "ignored-refunded"
+        assert (await _plan(client, app))["plan"] == "free"
+
+    _run(app, scenario)
+
+
+def test_a_failed_cancellation_is_retried_rather_than_lost(tmp_path, monkeypatch) -> None:
+    """If Dodo cannot be reached, nothing is kept and the webhook asks for a retry."""
+    _sell(monkeypatch)
+    _fake_provider(monkeypatch)
+    app = create_app(f"sqlite:///{(tmp_path / 'r2.db').as_posix()}")
+    renewal = datetime.now(timezone.utc) + timedelta(days=30)
+
+    def unreachable(*args, **kwargs):
+        import requests
+
+        raise requests.ConnectionError("down")
+
+    async def scenario(client: httpx.AsyncClient) -> None:
+        for payload, event_id in _subscribed(renewal):
+            await _deliver(client, payload, event_id)
+
+        monkeypatch.setattr("sdebris.billing.dodo.requests.get", unreachable)
+        failed = await _deliver(client, _refund("pay_s"), "evt_refund")
+        assert failed.status_code == 503
+        assert (await _plan(client, app))["plan"] == "pro", "nothing should have been kept"
+
+        _fake_provider(monkeypatch)
+        retried = await _deliver(client, _refund("pay_s"), "evt_refund")
+        assert retried.json()["outcome"] == "revoked-and-cancelled"
+        assert (await _plan(client, app))["plan"] == "free"
+
+    _run(app, scenario)
+
+
+def test_an_already_finished_subscription_is_not_cancelled_twice(tmp_path, monkeypatch) -> None:
+    _sell(monkeypatch)
+    calls = _fake_provider(monkeypatch, subscription_status="cancelled")
+    app = create_app(f"sqlite:///{(tmp_path / 'r3.db').as_posix()}")
+    renewal = datetime.now(timezone.utc) + timedelta(days=30)
+
+    async def scenario(client: httpx.AsyncClient) -> None:
+        for payload, event_id in _subscribed(renewal):
+            await _deliver(client, payload, event_id)
+        response = await _deliver(client, _refund("pay_s"), "evt_refund")
+        assert response.json()["outcome"] == "revoked-and-cancelled"
+
+    _run(app, scenario)
+    assert not [call for call in calls if call["method"] == "patch"]
+
+
+def test_a_partial_refund_is_a_credit_and_keeps_pro(tmp_path, monkeypatch) -> None:
+    _sell(monkeypatch)
+    calls = _fake_provider(monkeypatch)
+    app = create_app(f"sqlite:///{(tmp_path / 'r4.db').as_posix()}")
+    renewal = datetime.now(timezone.utc) + timedelta(days=30)
+
+    async def scenario(client: httpx.AsyncClient) -> None:
+        for payload, event_id in _subscribed(renewal):
+            await _deliver(client, payload, event_id)
+        response = await _deliver(client, _refund("pay_s", partial=True), "evt_refund")
+        assert response.json()["outcome"] == "partial-refund-kept"
+        assert (await _plan(client, app))["plan"] == "pro"
+
+    _run(app, scenario)
+    assert not [call for call in calls if call["method"] == "patch"]
+
+
+def test_a_lost_dispute_cancels_the_subscription(tmp_path, monkeypatch) -> None:
+    _sell(monkeypatch)
+    calls = _fake_provider(monkeypatch)
+    app = create_app(f"sqlite:///{(tmp_path / 'r5.db').as_posix()}")
+    renewal = datetime.now(timezone.utc) + timedelta(days=30)
+
+    async def scenario(client: httpx.AsyncClient) -> None:
+        for payload, event_id in _subscribed(renewal):
+            await _deliver(client, payload, event_id)
+        lost = {
+            "type": "dispute.lost",
+            "timestamp": _at(20),
+            "data": {"payload_type": "Dispute", "dispute_id": "dsp_9", "payment_id": "pay_s"},
+        }
+        assert (await _deliver(client, lost, "evt_lost")).json()["outcome"] == "revoked-and-cancelled"
+
+    _run(app, scenario)
+    assert [call["url"] for call in calls if call["method"] == "patch"] == [
+        "https://test.dodopayments.com/subscriptions/sub_x"
+    ]
+
+
+def test_a_withdrawn_dispute_restores_access(tmp_path, monkeypatch) -> None:
+    """Only a won dispute used to restore; a withdrawn one left Pro suspended."""
+    _sell(monkeypatch)
+    app = create_app(f"sqlite:///{(tmp_path / 'r6.db').as_posix()}")
+
+    async def scenario(client: httpx.AsyncClient) -> None:
+        await _deliver(client, _payment("pay_w"), "evt_pw")
+        dispute = {"payload_type": "Dispute", "dispute_id": "dsp_w", "payment_id": "pay_w"}
+        await _deliver(client, {"type": "dispute.opened", "data": dispute}, "evt_wo")
+        assert (await _plan(client, app))["plan"] == "free"
+        withdrawn = await _deliver(client, {"type": "dispute.cancelled", "data": dispute}, "evt_wc")
+        assert withdrawn.json()["outcome"] == "restored"
+        assert (await _plan(client, app))["plan"] == "pro"
+
+    _run(app, scenario)
+
+
+# ------------------------------------------------------- out-of-order events
+def test_a_late_retry_cannot_undo_a_cancellation(tmp_path, monkeypatch) -> None:
+    _sell(monkeypatch)
+    app = create_app(f"sqlite:///{(tmp_path / 'o1.db').as_posix()}")
+    renewal = datetime.now(timezone.utc) + timedelta(days=30)
+    period_end = datetime.now(timezone.utc) + timedelta(days=5)
+
+    async def scenario(client: httpx.AsyncClient) -> None:
+        active = _subscription("subscription.active", "sub_o", next_billing_date=renewal.isoformat())
+        active["timestamp"] = _at(0)
+        await _deliver(client, active, "evt_a1")
+        cancelled = _subscription(
+            "subscription.cancelled", "sub_o", next_billing_date=period_end.isoformat()
+        )
+        cancelled["timestamp"] = _at(20)
+        await _deliver(client, cancelled, "evt_c")
+
+        # The same subscription.active, redelivered late under a new delivery id.
+        late = await _deliver(client, active, "evt_a1_retry")
+        assert late.json()["outcome"] == "ignored-stale"
+        plan = await _plan(client, app)
+        assert plan["plan"] == "pro"
+        assert plan["cancelled"] is True
+        assert datetime.fromisoformat(plan["expires_at"]) <= period_end + timedelta(seconds=1)
+
+    _run(app, scenario)
+
+
+def test_a_late_renewal_cannot_revive_a_subscription_on_hold(tmp_path, monkeypatch) -> None:
+    _sell(monkeypatch)
+    app = create_app(f"sqlite:///{(tmp_path / 'o2.db').as_posix()}")
+    renewal = datetime.now(timezone.utc) + timedelta(days=30)
+
+    async def scenario(client: httpx.AsyncClient) -> None:
+        active = _subscription("subscription.active", "sub_h", next_billing_date=renewal.isoformat())
+        active["timestamp"] = _at(0)
+        await _deliver(client, active, "evt_h1")
+        on_hold = _subscription("subscription.on_hold", "sub_h")
+        on_hold["timestamp"] = _at(30)
+        await _deliver(client, on_hold, "evt_h2")
+        renewed = _subscription("subscription.renewed", "sub_h", next_billing_date=renewal.isoformat())
+        renewed["timestamp"] = _at(25)  # happened before the hold, arrived after
+        assert (await _deliver(client, renewed, "evt_h3")).json()["outcome"] == "ignored-stale"
+        assert (await _plan(client, app))["plan"] == "free"
+
+    _run(app, scenario)
+
+
+def test_a_genuinely_newer_renewal_still_applies(tmp_path, monkeypatch) -> None:
+    _sell(monkeypatch)
+    app = create_app(f"sqlite:///{(tmp_path / 'o3.db').as_posix()}")
+    renewal = datetime.now(timezone.utc) + timedelta(days=30)
+
+    async def scenario(client: httpx.AsyncClient) -> None:
+        on_hold = _subscription("subscription.on_hold", "sub_n")
+        active = _subscription("subscription.active", "sub_n", next_billing_date=renewal.isoformat())
+        active["timestamp"] = _at(0)
+        on_hold["timestamp"] = _at(10)
+        renewed = _subscription("subscription.renewed", "sub_n", next_billing_date=renewal.isoformat())
+        renewed["timestamp"] = _at(40)  # the card was fixed and the payment went through
+        await _deliver(client, active, "evt_n1")
+        await _deliver(client, on_hold, "evt_n2")
+        assert (await _deliver(client, renewed, "evt_n3")).json()["outcome"] == "granted"
+        assert (await _plan(client, app))["plan"] == "pro"
+
+    _run(app, scenario)
+
+
+# ------------------------------------------------------- the founding-seat cap
+def _founding_checkout(client: httpx.AsyncClient, app, subject: str):
+    client.headers["Authorization"] = f"Bearer {_token(app, subject=subject)}"
+    return client.post("/billing/checkout", json={"offer": "pro-founding", "accepted_terms": True})
+
+
+def _founding_payment(ref: str, subject: str) -> dict:
+    return _payment(ref, email=f"{subject}@localhost", metadata={"subject": subject})
+
+
+def test_the_last_seat_cannot_be_sold_twice(tmp_path, monkeypatch) -> None:
+    """At seat 99 every open checkout used to be able to pay and be granted."""
+    _sell(monkeypatch)
+    _fake_provider(monkeypatch)
+    monkeypatch.setattr("sdebris.api.app.FOUNDING_SEATS", 1)
+    app = create_app(f"sqlite:///{(tmp_path / 's1.db').as_posix()}")
+
+    async def scenario(client: httpx.AsyncClient) -> None:
+        assert (await _founding_checkout(client, app, "first")).status_code == 200
+        second = await _founding_checkout(client, app, "second")
+        assert second.status_code == 409
+        assert "reserved" in second.json()["detail"]
+        # The offer is gone for everyone else while the seat is reserved...
+        offers = (await client.get("/billing/plans")).json()["offers"]
+        assert "pro-founding" not in {offer["code"] for offer in offers}
+        # ...and the holder can still restart their own checkout.
+        assert (await _founding_checkout(client, app, "first")).status_code == 200
+
+        paid = await _deliver(client, _founding_payment("pay_first", "first"), "evt_first")
+        assert paid.json()["outcome"] == "granted-lifetime"
+
+    _run(app, scenario)
+
+
+def test_a_purchase_that_skipped_checkout_is_refunded_when_seats_are_gone(
+    tmp_path, monkeypatch
+) -> None:
+    """A Dodo payment link bypasses checkout; past the cap it is refunded, not granted."""
+    _sell(monkeypatch)
+    calls = _fake_provider(monkeypatch)
+    monkeypatch.setattr("sdebris.api.app.FOUNDING_SEATS", 1)
+    app = create_app(f"sqlite:///{(tmp_path / 's2.db').as_posix()}")
+
+    async def scenario(client: httpx.AsyncClient) -> None:
+        await _deliver(client, _founding_payment("pay_one", "one"), "evt_one")
+        extra = await _deliver(client, _founding_payment("pay_two", "two"), "evt_two")
+        assert extra.json()["outcome"] == "refunded-over-cap"
+        assert (await _plan(client, app, subject="two"))["plan"] == "free"
+        assert (await _plan(client, app, subject="one"))["plan"] == "pro"
+
+    _run(app, scenario)
+    refunds = [call for call in calls if call["url"].endswith("/refunds")]
+    assert [call["json"]["payment_id"] for call in refunds] == ["pay_two"]
+
+
+def test_a_seat_reserved_and_paid_is_honoured(tmp_path, monkeypatch) -> None:
+    _sell(monkeypatch)
+    calls = _fake_provider(monkeypatch)
+    monkeypatch.setattr("sdebris.api.app.FOUNDING_SEATS", 1)
+    app = create_app(f"sqlite:///{(tmp_path / 's3.db').as_posix()}")
+
+    async def scenario(client: httpx.AsyncClient) -> None:
+        assert (await _founding_checkout(client, app, "holder")).status_code == 200
+        paid = await _deliver(client, _founding_payment("pay_h", "holder"), "evt_h")
+        assert paid.json()["outcome"] == "granted-lifetime"
+        assert (await _plan(client, app, subject="holder"))["plan"] == "pro"
+        # The seat is now paid for, not reserved: still none left for others.
+        assert (await _founding_checkout(client, app, "late")).status_code == 409
+
+    _run(app, scenario)
+    assert not [call for call in calls if call["url"].endswith("/refunds")]
+
+
+def test_a_failed_checkout_gives_its_seat_back(tmp_path, monkeypatch) -> None:
+    _sell(monkeypatch)
+    monkeypatch.setattr("sdebris.api.app.FOUNDING_SEATS", 1)
+    monkeypatch.setenv("SDEBRIS_DODO_API_KEY", "test-key")
+
+    def down(*args, **kwargs):
+        import requests
+
+        raise requests.ConnectionError("down")
+
+    monkeypatch.setattr("sdebris.billing.dodo.requests.post", down)
+    app = create_app(f"sqlite:///{(tmp_path / 's4.db').as_posix()}")
+
+    async def scenario(client: httpx.AsyncClient) -> None:
+        assert (await _founding_checkout(client, app, "unlucky")).status_code == 503
+        _fake_provider(monkeypatch)
+        assert (await _founding_checkout(client, app, "next")).status_code == 200
+
+    _run(app, scenario)
