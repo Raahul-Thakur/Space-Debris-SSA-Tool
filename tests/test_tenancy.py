@@ -288,3 +288,41 @@ def test_watching_an_object_does_not_take_it_from_another_principal(
             )
         )
     assert owners == ["<platform>", "alice@localhost"], owners
+
+
+# ------------------------------------------------------------ the activity feed
+def _feed_text(client: TestClient, headers: dict[str, str]) -> str:
+    response = client.get("/activity", headers=headers, params={"limit": 200})
+    assert response.status_code == 200, response.text
+    return response.text
+
+
+def test_the_activity_feed_hides_another_principals_work(client: TestClient) -> None:
+    """The feed used to stream every account's commands, jobs and watch list.
+
+    A viewer saw other people's email addresses and exactly which objects they
+    were screening, contrary to what the privacy page promises.
+    """
+    alice = _headers(client, "alice", "analyst")
+    bob = _headers(client, "bob", "viewer")
+    job_id = _start_job(client, alice)
+    command = client.post(
+        "/commands/execute", headers=alice, json={"command": "events list --tier watch"}
+    )
+    assert command.status_code in (200, 201, 202), command.text
+
+    theirs = _feed_text(client, bob)
+    assert "alice@localhost" not in theirs
+    assert job_id not in theirs
+    assert "events list --tier watch" not in theirs
+
+    mine = _feed_text(client, alice)
+    assert job_id in mine
+    assert "events list --tier watch" in mine
+
+
+def test_an_administrator_still_sees_the_whole_feed(client: TestClient) -> None:
+    alice = _headers(client, "alice", "analyst")
+    root = _headers(client, "root", "admin")
+    job_id = _start_job(client, alice)
+    assert job_id in _feed_text(client, root)

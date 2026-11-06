@@ -25,6 +25,7 @@ from sdebris.ontology.orm import (
     ScreeningJobRecord,
     SpaceObjectRecord,
 )
+from sdebris.tenancy import Principal, scope
 
 #: Highest number of items a single feed read may return.
 MAX_FEED_ITEMS = 200
@@ -97,7 +98,10 @@ def _label(session: Session, object_id: str | None) -> tuple[str, str | None]:
     return record.name, record.norad_id
 
 
-def _conjunction_items(session: Session, since: datetime) -> list[ActivityItem]:
+def _conjunction_items(
+    session: Session, since: datetime, principal: Principal | None
+) -> list[ActivityItem]:
+    # Derived facts, not work products: the same for everyone (see tenancy).
     rows = session.scalars(
         select(ConjunctionEventRecord)
         .where(ConjunctionEventRecord.created_at > since)
@@ -140,9 +144,11 @@ def _conjunction_items(session: Session, since: datetime) -> list[ActivityItem]:
     return items
 
 
-def _alert_items(session: Session, since: datetime) -> list[ActivityItem]:
+def _alert_items(
+    session: Session, since: datetime, principal: Principal | None
+) -> list[ActivityItem]:
     rows = session.scalars(
-        select(AlertRecord)
+        scope(select(AlertRecord), AlertRecord.actor, principal)
         .where(AlertRecord.created_at > since)
         .order_by(AlertRecord.created_at)
         .limit(MAX_FEED_ITEMS)
@@ -167,14 +173,19 @@ def _alert_items(session: Session, since: datetime) -> list[ActivityItem]:
     ]
 
 
-def _job_items(session: Session, since: datetime) -> list[ActivityItem]:
+def _job_items(
+    session: Session, since: datetime, principal: Principal | None
+) -> list[ActivityItem]:
     # A job emits one progress record per transition, so the event table is the
     # feed source: the job row itself only ever holds the latest state.
     rows = session.execute(
-        select(ScreeningJobEventRecord, ScreeningJobRecord)
-        .join(
-            ScreeningJobRecord,
-            ScreeningJobRecord.id == ScreeningJobEventRecord.job_id,
+        scope(
+            select(ScreeningJobEventRecord, ScreeningJobRecord).join(
+                ScreeningJobRecord,
+                ScreeningJobRecord.id == ScreeningJobEventRecord.job_id,
+            ),
+            ScreeningJobRecord.actor,
+            principal,
         )
         .where(ScreeningJobEventRecord.created_at > since)
         .order_by(ScreeningJobEventRecord.created_at)
@@ -202,9 +213,11 @@ def _job_items(session: Session, since: datetime) -> list[ActivityItem]:
     ]
 
 
-def _command_items(session: Session, since: datetime) -> list[ActivityItem]:
+def _command_items(
+    session: Session, since: datetime, principal: Principal | None
+) -> list[ActivityItem]:
     rows = session.scalars(
-        select(CommandExecutionRecord)
+        scope(select(CommandExecutionRecord), CommandExecutionRecord.actor, principal)
         .where(CommandExecutionRecord.created_at > since)
         .order_by(CommandExecutionRecord.created_at)
         .limit(MAX_FEED_ITEMS)
@@ -225,10 +238,15 @@ def _command_items(session: Session, since: datetime) -> list[ActivityItem]:
     ]
 
 
-def _monitoring_items(session: Session, since: datetime) -> list[ActivityItem]:
+def _monitoring_items(
+    session: Session, since: datetime, principal: Principal | None
+) -> list[ActivityItem]:
     rows = session.execute(
-        select(MonitoredObjectRecord, SpaceObjectRecord)
-        .join(SpaceObjectRecord)
+        scope(
+            select(MonitoredObjectRecord, SpaceObjectRecord).join(SpaceObjectRecord),
+            MonitoredObjectRecord.added_by,
+            principal,
+        )
         .where(MonitoredObjectRecord.updated_at > since)
         .order_by(MonitoredObjectRecord.updated_at)
         .limit(MAX_FEED_ITEMS)
@@ -250,9 +268,11 @@ def _monitoring_items(session: Session, since: datetime) -> list[ActivityItem]:
     ]
 
 
-def _audit_items(session: Session, since: datetime) -> list[ActivityItem]:
+def _audit_items(
+    session: Session, since: datetime, principal: Principal | None
+) -> list[ActivityItem]:
     rows = session.scalars(
-        select(AuditActionRecord)
+        scope(select(AuditActionRecord), AuditActionRecord.actor, principal)
         .where(AuditActionRecord.occurred_at > since)
         .order_by(AuditActionRecord.occurred_at)
         .limit(MAX_FEED_ITEMS)
@@ -288,13 +308,24 @@ _COLLECTORS = (
 
 
 def collect_activity(
-    session: Session, since: datetime, limit: int = 50
+    session: Session,
+    since: datetime,
+    limit: int = 50,
+    *,
+    principal: Principal | None,
 ) -> list[ActivityItem]:
-    """Return feed items recorded strictly after ``since``, oldest first."""
+    """Return feed items ``principal`` may see, recorded after ``since``.
+
+    Conjunctions are shared by everyone. Commands, jobs, watch-list changes,
+    alerts and governance actions are work products: a principal sees their
+    own and the platform's, an administrator sees all, and an anonymous
+    caller sees only the platform's. ``principal`` is required so no caller
+    can forget it and fall back to an unscoped feed.
+    """
     cutoff = _aware(since)
     items: list[ActivityItem] = []
     for collector in _COLLECTORS:
-        items.extend(collector(session, cutoff))
+        items.extend(collector(session, cutoff, principal))
     items.sort(key=lambda item: (item.occurred_at, item.id))
     # The newest items matter most when a client has fallen far behind, so the
     # tail is kept and then re-presented in chronological order.

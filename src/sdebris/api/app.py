@@ -1471,7 +1471,7 @@ def create_app(database_url: str | None = None) -> FastAPI:
         limit: int = Query(default=50, ge=1, le=MAX_FEED_ITEMS),
     ) -> dict[str, object]:
         cutoff = _activity_cutoff(since)
-        items = collect_activity(session, cutoff, limit)
+        items = collect_activity(session, cutoff, limit, principal=principal)
         return {
             "items": [item.as_dict() for item in items],
             "cursor": feed_cursor(items, cutoff),
@@ -1491,7 +1491,9 @@ def create_app(database_url: str | None = None) -> FastAPI:
             watermark = cutoff
             while not await request.is_disconnected():
                 with database.session_factory() as session:
-                    items = collect_activity(session, watermark, limit)
+                    items = collect_activity(
+                        session, watermark, limit, principal=principal
+                    )
                 if items:
                     watermark = max(item.occurred_at for item in items)
                     for item in items:
