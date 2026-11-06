@@ -137,6 +137,21 @@
     color-scheme: dark;
 }
 
+/* In dark mode the bars (top bar, command bar, docs bar and the phone menu
+   inside the top bar) are drawn in --ink, which is light, but their muted
+   text used the plate greys meant for a dark ground: 2.6:1. Re-pointed on
+   the bars only, to 5.63:1 (soft) and 5.06:1 (faint) on #e8e5dd. */
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) :is(.topbar, .command-bar, .docs-topbar) {
+    --plate-soft: #5c584f;
+    --plate-faint: #635f55;
+  }
+}
+:root[data-theme="dark"] :is(.topbar, .command-bar, .docs-topbar) {
+  --plate-soft: #5c584f;
+  --plate-faint: #635f55;
+}
+
 * { box-sizing: border-box; }
 html, body { margin: 0; min-height: 100%; background: var(--paper); color: var(--ink); }
 body { font-family: var(--text); overflow: auto; -webkit-font-smoothing: antialiased; }

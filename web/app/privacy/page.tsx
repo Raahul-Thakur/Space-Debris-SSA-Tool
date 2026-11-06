@@ -17,7 +17,7 @@ export const metadata: Metadata = {
  * the identity provider returned and, for buyers, what the billing webhook keeps
  * after `ledger_payload` strips card and address details.
  */
-const UPDATED = "1 November 2026";
+const UPDATED = "6 November 2026";
 
 const SECTIONS = [
   { id: "summary", label: "The short version" },
@@ -206,9 +206,25 @@ export default function PrivacyPage() {
                 <td>Your email, name and avatar URL, and your stored work</td>
               </tr>
               <tr>
-                <td>Vercel</td>
+                <td>Cloudflare</td>
                 <td>Hosting and the edge cache</td>
                 <td>Requests for pages, as any web host does</td>
+              </tr>
+              <tr>
+                <td>Cloudflare R2</td>
+                <td>Nightly database backups</td>
+                <td>
+                  Encrypted copies of the database. They cannot be read without a key that
+                  Cloudflare does not hold
+                </td>
+              </tr>
+              <tr>
+                <td>Sentry (if enabled)</td>
+                <td>Error reports from the API</td>
+                <td>
+                  Technical details of a failure. No request bodies, IP addresses, cookies or
+                  email addresses are sent
+                </td>
               </tr>
               <tr>
                 <td>Render</td>

@@ -379,17 +379,17 @@ export default function DocsPage() {
             <div>
               <dt>Probability model</dt>
               <dd>
-                An illustrative estimate from Chan&apos;s analytic series in the encounter plane,
-                over that synthetic covariance.
+                An illustrative estimate from Foster&apos;s method: the exact integral of that
+                synthetic covariance over the hard body in the encounter plane.
               </dd>
             </div>
           </dl>
           <div className="docs-callout warn">
             <strong>Known limitations.</strong> No authoritative covariance is ingested. TLE
             accuracy degrades with age and after manoeuvres. Object sizes are assumed rather
-            than known. Screening samples a fixed time grid, so a very fast crossing between
-            two samples can be missed, and TCA is accurate to roughly a kilometre. If
-            CelesTrak cannot be reached, the last cached catalogue is used. Results are illustrative of pipeline behaviour and must not drive
+            than known. Positions come from SGP4, which is typically about a kilometre off near
+            the element epoch and worse as elements age. If CelesTrak cannot be reached, the
+            last cached catalogue is used, and the run is marked as not live. Results are illustrative of pipeline behaviour and must not drive
             operational collision-avoidance decisions.
           </div>
         </section>
