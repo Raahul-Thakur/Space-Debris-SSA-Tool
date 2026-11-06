@@ -21,6 +21,7 @@ nav:
   - Methodology: methodology.md
   - Free-tier deployment: deployment-free-tier.md
   - Cloudflare Pages frontend: deployment-cloudflare.md
+  - Database backups: backups.md
   - Capacity and sign-in: capacity.md
 
 markdown_extensions:

@@ -1,0 +1,91 @@
+name: Database backup
+
+# Nightly, encrypted, off-site copy of the Supabase database. Supabase's free
+# plan has no point-in-time recovery, and the database holds the billing
+# ledger and every Pro grant: losing it means not knowing who has paid.
+#
+# The dump is encrypted with `age` to a public key before it leaves the
+# runner, then uploaded to Cloudflare R2 (S3-compatible, free up to 10 GB).
+# Only the matching private key, which never comes near GitHub, can read it.
+# It is never uploaded as an Actions artifact: this repository is public.
+#
+# Inactive until configured; see docs/backups.md.
+
+on:
+  schedule:
+    - cron: "17 3 * * *"
+  workflow_dispatch:
+
+permissions: {}
+
+concurrency:
+  group: database-backup
+  cancel-in-progress: false
+
+jobs:
+  backup:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    env:
+      # The session pooler (port 5432) with a plain postgresql:// URL: pg_dump
+      # cannot use the transaction pooler, and does not accept +psycopg.
+      DATABASE_URL: ${{ secrets.SDEBRIS_BACKUP_DATABASE_URL }}
+      AGE_RECIPIENT: ${{ vars.BACKUP_AGE_RECIPIENT }}
+      R2_ENDPOINT: ${{ vars.BACKUP_R2_ENDPOINT }}
+      R2_BUCKET: ${{ vars.BACKUP_R2_BUCKET }}
+      AWS_ACCESS_KEY_ID: ${{ secrets.BACKUP_R2_ACCESS_KEY_ID }}
+      AWS_SECRET_ACCESS_KEY: ${{ secrets.BACKUP_R2_SECRET_ACCESS_KEY }}
+      AWS_DEFAULT_REGION: auto
+      # Must be at least the server's major version.
+      PG_MAJOR: "17"
+    steps:
+      - name: Check the backup is configured
+        id: configured
+        run: |
+          missing=""
+          for name in DATABASE_URL AGE_RECIPIENT R2_ENDPOINT R2_BUCKET AWS_ACCESS_KEY_ID AWS_SECRET_ACCESS_KEY; do
+            if [ -z "${!name}" ]; then missing="$missing $name"; fi
+          done
+          if [ -n "$missing" ]; then
+            echo "::notice::Backups are not configured (missing:$missing). See docs/backups.md."
+            echo "ready=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "ready=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Install age
+        if: steps.configured.outputs.ready == 'true'
+        run: sudo apt-get update -q && sudo apt-get install -y -q age
+
+      - name: Dump, verify and encrypt
+        if: steps.configured.outputs.ready == 'true'
+        run: |
+          set -euo pipefail
+          stamp="$(date -u +%Y%m%dT%H%M%SZ)"
+          echo "STAMP=$stamp" >> "$GITHUB_ENV"
+          # pg_dump from the official image, so its version matches the server
+          # rather than whatever the runner happens to ship.
+          docker run --rm --network host -e DATABASE_URL "postgres:${PG_MAJOR}" \
+            sh -c 'pg_dump --format=custom --no-owner --no-privileges "$DATABASE_URL"' > dump.pgc
+          size=$(stat -c %s dump.pgc)
+          if [ "$size" -lt 1024 ]; then
+            echo "::error::the dump is only $size bytes; refusing to upload it"; exit 1
+          fi
+          # A dump that cannot be read back is not a backup.
+          docker run --rm -i "postgres:${PG_MAJOR}" pg_restore --list < dump.pgc > contents.txt
+          tables=$(grep -c " TABLE DATA " contents.txt || true)
+          echo "dump: $size bytes, $tables tables"
+          if [ "$tables" -lt 5 ]; then
+            echo "::error::the dump lists only $tables tables; refusing to upload it"; exit 1
+          fi
+          age --encrypt --recipient "$AGE_RECIPIENT" --output "sdebris-$stamp.pgc.age" dump.pgc
+          rm -f dump.pgc contents.txt
+
+      - name: Upload to R2
+        if: steps.configured.outputs.ready == 'true'
+        run: |
+          set -euo pipefail
+          aws s3 cp "sdebris-$STAMP.pgc.age" "s3://$R2_BUCKET/daily/sdebris-$STAMP.pgc.age" \
+            --endpoint-url "$R2_ENDPOINT" --only-show-errors
+          echo "uploaded daily/sdebris-$STAMP.pgc.age"
+          rm -f "sdebris-$STAMP.pgc.age"
