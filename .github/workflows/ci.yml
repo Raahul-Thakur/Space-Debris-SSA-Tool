@@ -73,6 +73,15 @@ jobs:
         continue-on-error: true
         run: npm audit --audit-level=high
       - run: npm run build
+      - name: Build the Cloudflare Pages export
+        # Production is this static export plus functions/. A route handler
+        # or server-only API slipping into app/ breaks it, so it is built on
+        # every push rather than discovered at deploy time.
+        run: |
+          npm run build:cloudflare
+          test -f out/index.html
+          test -f out/_headers
+          test ! -e out/api
       - run: npx playwright install --with-deps chromium
       - run: npm run test:e2e
 

@@ -9,6 +9,7 @@
   "scripts": {
     "dev": "node scripts/copy-cesium.mjs && next dev",
     "build": "node scripts/copy-cesium.mjs && next build",
+    "build:cloudflare": "node scripts/build-static.mjs",
     "start": "next start",
     "typecheck": "tsc --noEmit",
     "test": "vitest run",

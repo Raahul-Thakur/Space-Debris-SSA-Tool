@@ -8,6 +8,8 @@ export default defineConfig([
   globalIgnores([
     ".next/**",
     ".next-e2e/**",
+    "out/**",
+    ".wrangler/**",
     "public/cesium/**",
     "test-results/**",
     "playwright-report/**",

@@ -9,8 +9,11 @@ policies.
 
 Three services, all on free plans:
 
-- **Vercel Hobby** serves the Next.js frontend and managed HTTPS. Both routes
-  prerender as static files, so no serverless functions are involved.
+- **Cloudflare Pages** serves the frontend as a static export, with the public
+  read proxy as a Pages Function; see
+  [Cloudflare Pages frontend](deployment-cloudflare.md). The Vercel steps below
+  still work for a non-commercial deployment, but Vercel Hobby does not allow
+  commercial use, and the site sells Pro.
 - **Render Free Web Service** runs the Docker image containing FastAPI. Screening
   executes in the API process, so there is no separate worker and no Redis.
   Render free services sleep after inactivity, so first requests may be slow.

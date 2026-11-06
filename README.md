@@ -115,7 +115,8 @@ CelesTrak → SQLite cache → SGP4 propagation → coarse screen
 
 See [docs/architecture.md](docs/architecture.md) and
 [docs/methodology.md](docs/methodology.md) for the full data flow and the science.
-For the zero-cost public stack — Vercel Hobby for the frontend, a Render free
+For the zero-cost public stack — Cloudflare Pages for the frontend (see
+[docs/deployment-cloudflare.md](docs/deployment-cloudflare.md)), a Render free
 web service for the API, and one Supabase free project for both Postgres and
 authentication — follow
 [docs/deployment-free-tier.md](docs/deployment-free-tier.md). On that stack

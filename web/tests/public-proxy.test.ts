@@ -22,7 +22,7 @@ async function load(env: Record<string, string> = {}) {
   vi.resetModules();
   process.env.NEXT_PUBLIC_SDEBRIS_API_URL = "https://api.example.test";
   for (const [key, value] of Object.entries(env)) process.env[key] = value;
-  return import("@/app/api/public/[...path]/route");
+  return import("@/app/api/public/[...path]/route.server");
 }
 
 type Handler = (
