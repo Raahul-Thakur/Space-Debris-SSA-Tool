@@ -131,7 +131,18 @@ def screen(
             f"Target NORAD {norad} not found in cache. Run `sdebris fetch` or drop --no-fetch."
         )
     objects = cache.all()
+    data = _data_freshness(cache, objects)
     cache.close()
+    if not data["live"]:
+        # Results built on stale or bundled sample data must not look live.
+        note = (
+            "CelesTrak could not be reached for "
+            + (", ".join(data["failed"]) or "part of the catalogue")
+            + ("; bundled 2024 SAMPLE data is in use" if data["used_sample"] else "; cached data is in use")
+        )
+        console.print(f"[bold yellow]Warning:[/bold yellow] {note}")
+        if os.getenv("GITHUB_ACTIONS"):
+            print(f"::warning::{note}")
 
     start_dt = datetime.fromisoformat(start) if start else None
     with console.status(f"Screening {len(objects)} objects against {target.name}..."):
@@ -161,6 +172,18 @@ def screen(
             f"{summary.objects_versioned} versioned objects · "
             f"{summary.events_created} events · {summary.cases_opened} cases opened"
         )
+
+
+def _data_freshness(cache: TLECache, objects: list) -> dict[str, object]:
+    """Whether a screening's inputs were live, cached or bundled sample data."""
+    report = cache.refresh_report
+    summary = report.as_dict() if report else {
+        "fetched": [], "fresh": [], "failed": [], "used_sample": False, "live": True
+    }
+    if "sample" in cache.sources([obj.norad_id for obj in objects]):
+        summary["used_sample"] = True
+        summary["live"] = False
+    return summary
 
 
 def _print_summary(result: ScreeningResult) -> None:

@@ -27,6 +27,9 @@ CREATE INDEX IF NOT EXISTS idx_tle_source ON tle(source);
 class TLECache:
     """A thin SQLite wrapper. One row per NORAD id; newer epochs replace older."""
 
+    #: Set by ``refresh_catalog``: what the last refresh fetched or skipped.
+    refresh_report = None
+
     def __init__(self, path: str | Path) -> None:
         self.path = Path(path)
         self.path.parent.mkdir(parents=True, exist_ok=True)
@@ -104,6 +107,32 @@ class TLECache:
         row = self._conn.execute("SELECT MAX(fetched_at) FROM tle").fetchone()
         value = row[0] if row else None
         return datetime.fromisoformat(value) if value else None
+
+    def fetched_at(self, *, source: str | None = None, norad_id: str | None = None) -> datetime | None:
+        """When rows from ``source``, or the row for ``norad_id``, were last fetched."""
+        if norad_id is not None:
+            row = self._conn.execute(
+                "SELECT fetched_at FROM tle WHERE norad_id = ?", (str(norad_id),)
+            ).fetchone()
+        else:
+            row = self._conn.execute(
+                "SELECT MAX(fetched_at) FROM tle WHERE source = ?", (source,)
+            ).fetchone()
+        value = row[0] if row else None
+        if not value:
+            return None
+        parsed = datetime.fromisoformat(value)
+        return parsed if parsed.tzinfo else parsed.replace(tzinfo=timezone.utc)
+
+    def sources(self, norad_ids: list[str]) -> set[str]:
+        """The sources the given objects were cached from."""
+        if not norad_ids:
+            return set()
+        marks = ",".join("?" for _ in norad_ids)
+        rows = self._conn.execute(
+            f"SELECT DISTINCT source FROM tle WHERE norad_id IN ({marks})", norad_ids
+        ).fetchall()
+        return {row[0] for row in rows if row[0]}
 
     def stale_ids(self, stale_after_days: float, reference: datetime | None = None) -> list[str]:
         """NORAD ids whose cached TLE is older than the staleness threshold."""

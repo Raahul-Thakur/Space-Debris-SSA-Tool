@@ -690,6 +690,12 @@ def create_app(database_url: str | None = None) -> FastAPI:
     @asynccontextmanager
     async def lifespan(_app: FastAPI):
         database.initialize()
+        orphaned = jobs.fail_orphaned_jobs()
+        if orphaned:
+            logging.getLogger("sdebris.jobs").warning(
+                "marked %d screening job(s) interrupted by the last restart as failed",
+                orphaned,
+            )
         yield
         jobs.shutdown()
         database.engine.dispose()

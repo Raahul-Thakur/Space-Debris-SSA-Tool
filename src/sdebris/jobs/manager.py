@@ -69,6 +69,42 @@ class ScreeningJobManager:
         # runs as a single instance, so an in-process lock is enough.
         self._admission_lock = Lock()
 
+    def fail_orphaned_jobs(self) -> int:
+        """Mark jobs that cannot still be running as failed. Returns how many.
+
+        With the in-process thread pool, a job lives only as long as the
+        process: a restart (a deploy, or the free instance sleeping) loses
+        every queued and running job, but their rows stayed "running" for
+        ever, their progress streams never ended, and the account's job slot
+        stayed taken. Run at startup, when no job of this process exists
+        yet. Not with the Redis backend, whose queued jobs survive a restart.
+        """
+        if self.backend != "thread":
+            return 0
+        message = "Interrupted by a restart of the API; run the screening again"
+        with self.session_factory() as session:
+            orphans = list(
+                session.scalars(
+                    select(ScreeningJobRecord).where(
+                        ScreeningJobRecord.status.in_(
+                            (JobStatus.QUEUED.value, JobStatus.RUNNING.value)
+                        )
+                    )
+                )
+            )
+            for job in orphans:
+                job.status = JobStatus.FAILED.value
+                job.stage = "failed"
+                job.message = message
+                job.error_message = message
+                job.completed_at = datetime.now(timezone.utc)
+                self._complete_commands(
+                    session, job.id, JobStatus.FAILED, {}, error_message=message
+                )
+                self._append_event(session, job, "failed", job.progress, message)
+            session.commit()
+        return len(orphans)
+
     def shutdown(self) -> None:
         if self.executor:
             self.executor.shutdown(wait=False, cancel_futures=True)
@@ -267,6 +303,13 @@ class ScreeningJobManager:
                 self._ensure_time(deadline)
 
             result_payload = result.metadata()
+            report = getattr(cache, "refresh_report", None)
+            freshness = report.as_dict() if report else {"live": None}
+            if "sample" in cache.sources([item.norad_id for item in catalog]):
+                freshness = {**freshness, "used_sample": True, "live": False}
+            # Read by the console and the API: whether this run's inputs were
+            # fresh from CelesTrak, a cached copy, or bundled sample data.
+            result_payload["data_freshness"] = freshness
             if summary:
                 result_payload["ontology_run_id"] = summary.screening_run_id
                 result_payload["cases_opened"] = summary.cases_opened

@@ -7,16 +7,52 @@ CelesTrak serves General Perturbations (GP) element sets at
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+import logging
+from dataclasses import dataclass, field
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 import requests
 
+from sdebris import __version__
 from sdebris.config import Config
 from sdebris.ingest.cache import TLECache
 from sdebris.models import SpaceObject, parse_tle_text
 
-USER_AGENT = "sdebris/0.1 (space-debris-ssa-tool)"
+logger = logging.getLogger("sdebris.ingest")
+
+#: CelesTrak asks automated clients to identify themselves with a way to
+#: reach the operator, and blocks addresses that fetch too often without one.
+USER_AGENT = (
+    f"Astra-SSA/{__version__} "
+    "(+https://github.com/Raahul-Thakur/Space-Debris-SSA-Tool; raahul.thakurr01@gmail.com)"
+)
+
+
+@dataclass
+class RefreshReport:
+    """What a catalogue refresh actually did, so results can say how fresh they are."""
+
+    fetched: list[str] = field(default_factory=list)
+    #: Skipped because the cached copy is newer than the poll interval.
+    fresh: list[str] = field(default_factory=list)
+    failed: list[str] = field(default_factory=list)
+    #: The bundled sample file was used because nothing better was available.
+    used_sample: bool = False
+
+    @property
+    def live(self) -> bool:
+        """True when nothing failed and no sample data stood in."""
+        return not self.failed and not self.used_sample
+
+    def as_dict(self) -> dict[str, object]:
+        return {
+            "fetched": self.fetched,
+            "fresh": self.fresh,
+            "failed": self.failed,
+            "used_sample": self.used_sample,
+            "live": self.live,
+        }
 
 
 @dataclass
@@ -51,31 +87,55 @@ def refresh_catalog(
     extra_norad_ids: list[str] | None = None,
     *,
     offline_ok: bool = True,
+    now: datetime | None = None,
 ) -> TLECache:
-    """Refresh the local cache from CelesTrak.
+    """Refresh the local cache from CelesTrak, no more often than it asks.
 
-    Fetches the configured group plus any extra NORAD ids (e.g. the screening
-    target). On network failure, falls back to the existing cache (and the
-    bundled sample TLE if the cache is empty) when ``offline_ok`` is set.
+    Fetches the group plus any extra NORAD ids (e.g. the screening target),
+    skipping any that were fetched within ``ingestion.poll_interval_hours``.
+    CelesTrak updates element sets about every two hours and blocks clients
+    that download unchanged data repeatedly; every screening used to
+    re-download its whole group, and the scheduled workflow fetched the same
+    group three times a run, from shared cloud addresses.
+
+    On network failure, falls back to the existing cache (and the bundled
+    sample TLE if the cache is empty) when ``offline_ok`` is set. What
+    happened is recorded on ``cache.refresh_report``.
     """
     group = group or config.ingestion.default_group
     cache = TLECache(config.resolve_path(config.ingestion.cache_path))
     client = CelesTrakClient(base_url=config.ingestion.base_url)
+    report = RefreshReport()
+    moment = now or datetime.now(timezone.utc)
+    interval = timedelta(hours=config.ingestion.poll_interval_hours)
+
+    def is_fresh(fetched: datetime | None) -> bool:
+        return fetched is not None and moment - fetched < interval
 
     errors: list[Exception] = []
-    try:
-        objects = client.fetch_group(group)
-        cache.upsert(objects, source=group)
-    except (requests.RequestException, ValueError) as exc:
-        errors.append(exc)
-
-    # Explicitly monitored objects are refreshed on every poll, even when they
-    # already exist in the cache or are not members of the selected group.
-    for norad_id in dict.fromkeys(extra_norad_ids or []):
+    if is_fresh(cache.fetched_at(source=group)):
+        report.fresh.append(group)
+    else:
         try:
-            cache.upsert(client.fetch_catnr(norad_id), source=f"catnr:{norad_id}")
+            objects = client.fetch_group(group)
+            cache.upsert(objects, source=group)
+            report.fetched.append(group)
         except (requests.RequestException, ValueError) as exc:
             errors.append(exc)
+            report.failed.append(group)
+
+    # Explicitly requested objects are refreshed too, even when they are not
+    # members of the selected group, subject to the same interval.
+    for norad_id in dict.fromkeys(extra_norad_ids or []):
+        if is_fresh(cache.fetched_at(norad_id=norad_id)):
+            report.fresh.append(f"catnr:{norad_id}")
+            continue
+        try:
+            cache.upsert(client.fetch_catnr(norad_id), source=f"catnr:{norad_id}")
+            report.fetched.append(f"catnr:{norad_id}")
+        except (requests.RequestException, ValueError) as exc:
+            errors.append(exc)
+            report.failed.append(f"catnr:{norad_id}")
 
     if errors and not offline_ok:
         cache.close()
@@ -85,12 +145,20 @@ def refresh_catalog(
     ]
     if cache.count() == 0 or (errors and missing_explicit):
         _seed_from_sample(cache)
+        report.used_sample = True
     if errors:
+        logger.warning(
+            "%d CelesTrak request(s) failed (%s); using cached%s data",
+            len(errors),
+            ", ".join(report.failed),
+            " and sample" if report.used_sample else "",
+        )
         print(
             f"[sdebris] {len(errors)} CelesTrak request(s) failed; "
             "using cached/sample data where needed."
         )
 
+    cache.refresh_report = report
     return cache
 
 
