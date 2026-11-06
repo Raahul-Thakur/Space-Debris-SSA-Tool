@@ -1,7 +1,10 @@
 "use client";
 
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, useState } from "react";
 import * as Cesium from "cesium";
+// Here rather than in the root layout, so the docs, legal and pricing pages,
+// which never draw a globe, do not download Cesium's widget stylesheet.
+import "cesium/Build/Cesium/Widgets/widgets.css";
 import type { Trajectory } from "@/lib/types";
 
 declare global {
@@ -105,6 +108,12 @@ export default function OrbitGlobe({
   const viewerRef = useRef<Cesium.Viewer | null>(null);
   const tracksRef = useRef<Cesium.PolylineCollection | null>(null);
   const onSelectRef = useRef(onSelect);
+  // A WebGL failure after start-up (a lost context, a shader the driver
+  // rejects) does not throw: Cesium stops its render loop and would paint
+  // its own error panel over the plate. Rethrowing it during render hands it
+  // to the error boundary around the globe instead, which explains it in the
+  // console's own words.
+  const [renderFailure, setRenderFailure] = useState<unknown>(null);
 
   useEffect(() => {
     onSelectRef.current = onSelect;
@@ -126,7 +135,11 @@ export default function OrbitGlobe({
       infoBox: false,
       selectionIndicator: false,
       baseLayer: false,
-      terrainProvider: new Cesium.EllipsoidTerrainProvider()
+      terrainProvider: new Cesium.EllipsoidTerrainProvider(),
+      showRenderLoopErrors: false
+    });
+    viewer.scene.renderError.addEventListener((_scene: Cesium.Scene, error: unknown) => {
+      setRenderFailure(error ?? new Error("Cesium stopped rendering."));
     });
     viewer.scene.backgroundColor = Cesium.Color.fromCssColorString(PLATE);
     // There is no imagery layer, so the built-in globe contributes no visible
@@ -189,6 +202,13 @@ export default function OrbitGlobe({
     const viewer = viewerRef.current;
     const tracks = tracksRef.current;
     if (!viewer || !tracks) return;
+    // Cesium draws labels onto a canvas and cannot resolve CSS variables, so
+    // the stack is read from the --mono token rather than spelled out: that
+    // way it keeps the size-matched fallback face next/font registers, and
+    // follows the token if the typeface ever changes.
+    const mono =
+      getComputedStyle(document.documentElement).getPropertyValue("--mono").trim() ||
+      "monospace";
     // Earth is a primitive, so clearing the entity collection never touches it.
     viewer.entities.removeAll();
     tracks.removeAll();
@@ -226,7 +246,7 @@ export default function OrbitGlobe({
         },
         label: {
           text: `${trajectory.name} / ${trajectory.norad_id}`,
-          font: "500 11px 'IBM Plex Mono', monospace",
+          font: `500 11px ${mono}`,
           fillColor: Cesium.Color.fromCssColorString(PAPER),
           show: selected,
           showBackground: true,
@@ -241,5 +261,6 @@ export default function OrbitGlobe({
     if (selectedPosition) frameOverhead(viewer, selectedPosition);
   }, [selectedNoradId, trajectories]);
 
+  if (renderFailure) throw renderFailure;
   return <div ref={container} className="globe" aria-label="TEME orbital visualization" />;
 }

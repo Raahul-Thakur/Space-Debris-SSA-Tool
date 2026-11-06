@@ -1,5 +1,3 @@
-@import url("https://fonts.googleapis.com/css2?family=Archivo:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500;600&family=Instrument+Serif:ital@0;1&display=swap");
-
 /* ============================================================================
    Astra / SSA — technical print
    ----------------------------------------------------------------------------
@@ -19,10 +17,26 @@
   --paper-sunk: #e5e1d6;
   --paper-band: #dcd7ca;
 
-  /* Ink surfaces and text */
+  /* Ink surfaces and text.
+
+     The two "faint" greys carry small text (9-12px labels, timestamps,
+     units), so they are held to WCAG AA's 4.5:1 on every surface they sit
+     on, not only the main one. Each was moved along its own lightness axis
+     (hue and saturation kept) until the worst background passed:
+
+       --ink-faint, light  #615d51  paper 5.57  paper-sunk 5.03  paper-band 4.58
+                           (was #85806f: 3.35 / 3.02 / 2.75)
+       --ink-faint, dark   #8c877e  paper 5.07  paper-sunk 5.34  paper-band 4.58
+                           (was #837e75: 4.49 / 4.72 / 4.05)
+       --plate-faint       #8c877c  plate 5.25  plate-sunk 5.48
+                                    slab 5.11 light / 4.57 dark
+                           (was #5f5b53: 2.78 / 2.90 / 2.71 / 2.42)
+
+     The cost is a narrower step between faint and soft, most visibly on
+     the plate, where hierarchy now leans on size and weight instead. */
   --ink: #16150f;
   --ink-soft: #4b483f;
-  --ink-faint: #85806f;
+  --ink-faint: #615d51;
   --rule: #cfc9ba;
   --rule-strong: #b3ac9a;
 
@@ -36,7 +50,7 @@
   --plate-sunk: #0a0c0d;
   --plate-ink: #e8e5dd;
   --plate-soft: #948f83;
-  --plate-faint: #5f5b53;
+  --plate-faint: #8c877c;
   --plate-rule: #2b2d2f;
 
   /* Signal */
@@ -45,9 +59,25 @@
   --watch: #8a5a0b;
   --nominal: #2f5d4a;
 
-  --mono: "IBM Plex Mono", ui-monospace, monospace;
-  --text: "Archivo", system-ui, sans-serif;
-  --display: "Instrument Serif", Georgia, serif;
+  /* Focus rings. Non-text indicators need 3:1 against whatever they are
+     drawn on, and no single red manages that on both the bone page and the
+     ink bars: the plain signal gives 4.86 on paper but 3.19 on ink, and the
+     lifted dark-theme signal is the reverse. So the ring takes whichever
+     red suits the surface (ratios against the worst surface of each kind):
+       --focus          signal on paper    4.86 light (3.99 on paper-band) / 4.80 dark
+       --focus-inverse  on the ink bars    5.51 light (#f2563a) / 4.56 dark (#c02f18)
+       --focus-plate    on the globe plate 5.51, always dark */
+  --focus: var(--signal);
+  --focus-inverse: #f2563a;
+  --focus-plate: #f2563a;
+
+  /* The font-* variables are set on <html> by next/font in app/layout.tsx,
+     which downloads the files at build time and serves them from this site:
+     no request leaves for Google, and each face carries a size-adjusted
+     local fallback so the swap does not shift the layout. */
+  --mono: var(--font-plex-mono), ui-monospace, monospace;
+  --text: var(--font-archivo), system-ui, sans-serif;
+  --display: var(--font-instrument-serif), Georgia, serif;
 
   /* Tells the browser to render form controls, scrollbars and the
      canvas backdrop to match. Without it a dark page keeps light
@@ -74,7 +104,7 @@
     --paper-band: #1d2025;
     --ink: #e8e5dd;
     --ink-soft: #a7a296;
-    --ink-faint: #837e75;
+    --ink-faint: #8c877e;
     --rule: #2b2f35;
     --rule-strong: #3e434a;
     --slab: #1d2025;
@@ -83,6 +113,7 @@
     --signal-deep: #ff7a5e;
     --watch: #d9a441;
     --nominal: #5fae8c;
+    --focus-inverse: #c02f18;
     color-scheme: dark;
   }
 }
@@ -93,7 +124,7 @@
     --paper-band: #1d2025;
     --ink: #e8e5dd;
     --ink-soft: #a7a296;
-    --ink-faint: #837e75;
+    --ink-faint: #8c877e;
     --rule: #2b2f35;
     --rule-strong: #3e434a;
     --slab: #1d2025;
@@ -102,6 +133,7 @@
     --signal-deep: #ff7a5e;
     --watch: #d9a441;
     --nominal: #5fae8c;
+    --focus-inverse: #c02f18;
     color-scheme: dark;
 }
 
@@ -117,6 +149,19 @@ body:has(.shell) { overflow: hidden; }
 button, input { font: inherit; border-radius: 0; }
 button { color: inherit; }
 ::selection { background: var(--signal); color: var(--paper); }
+
+/* Keyboard focus ----------------------------------------------------------
+   :focus-visible, so a mouse click does not leave a ring behind but Tab
+   always shows where it is. The colour follows the surface (see the focus
+   tokens above): the bars and the plate swap in their own red, and their
+   controls fill the bar's full height, so the ring is drawn inside them
+   rather than clipped by the bar's edge. */
+:focus-visible {
+  outline: 2px solid var(--focus);
+  outline-offset: var(--focus-offset, 2px);
+}
+.topbar, .docs-topbar, .command-bar { --focus: var(--focus-inverse); --focus-offset: -3px; }
+.orbital-stage { --focus: var(--focus-plate); }
 
 /* Shared type registers -------------------------------------------------- */
 .eyebrow,
@@ -898,6 +943,37 @@ button { color: inherit; }
 }
 .globe { position: absolute; inset: 0; }
 .cesium-widget-credits { display: none !important; }
+/* What a phone shows until the visitor asks for the 3D globe, and what any
+   device shows if the globe fails. Drawn on the same plate, so the panel
+   keeps its place and weight in the layout either way. */
+.globe-poster {
+  display: grid;
+  place-items: center;
+  align-content: center;
+  gap: 18px;
+  padding: 24px 20px;
+  color: var(--plate-soft);
+  font: 400 9px var(--mono);
+  letter-spacing: .14em;
+  text-align: center;
+}
+.globe-poster svg { width: min(52%, 220px, 34vh); height: auto; }
+.globe-poster-copy { display: grid; justify-items: center; gap: 6px; max-width: 34ch; }
+.globe-poster-copy p { margin: 0; color: var(--plate-ink); font: 500 10px var(--mono); letter-spacing: .16em; }
+.globe-poster-copy span { line-height: 1.6; }
+.globe-poster-copy small { color: var(--plate-faint); font: 400 10px var(--mono); letter-spacing: .06em; }
+.globe-poster-copy button {
+  margin-top: 10px;
+  padding: 12px 20px;
+  border: 0;
+  background: var(--signal);
+  color: var(--paper);
+  cursor: pointer;
+  font: 500 10px var(--mono);
+  letter-spacing: .16em;
+}
+.globe-poster-copy button:hover { background: var(--signal-deep); }
+.globe-failed span { letter-spacing: .04em; font-size: 11px; }
 .stage-title { position: absolute; top: 18px; left: 20px; pointer-events: none; }
 .stage-title p { margin: 0 0 5px; color: var(--plate-ink); }
 .stage-title span { font-size: 9px; color: var(--plate-faint); letter-spacing: .14em; }
@@ -1286,6 +1362,14 @@ button { color: inherit; }
   letter-spacing: -.01em;
 }
 .command-input input::placeholder { color: var(--plate-faint); }
+/* The field itself draws no outline (it would sit hard against the prompt
+   and the button), so the whole row carries the ring while it has focus.
+   :focus-within rather than :focus-visible because a text field always
+   shows focus, however it was reached. */
+.command-input:focus-within {
+  outline: 2px solid var(--focus);
+  outline-offset: -2px;
+}
 .safe {
   margin-right: 18px;
   padding: 4px 8px;
@@ -1693,6 +1777,19 @@ button { color: inherit; }
 }
 .docs-footer a:hover { background: var(--signal); }
 .docs-footer p { margin-top: 18px; color: var(--ink-faint); font: 400 10px/1.7 var(--mono); }
+/* The not-found and error pages: two ways on, side by side, the retry a
+   button because it acts rather than navigates. */
+.status-actions { display: flex; flex-wrap: wrap; gap: 10px; }
+.status-actions button {
+  padding: 10px 16px;
+  border: 0;
+  background: var(--ink);
+  color: var(--paper);
+  cursor: pointer;
+  font: 500 10px var(--mono);
+  letter-spacing: .16em;
+}
+.status-actions button:hover { background: var(--signal); }
 
 /* ================================================================ animations */
 @keyframes blink { 50% { opacity: .25; } }

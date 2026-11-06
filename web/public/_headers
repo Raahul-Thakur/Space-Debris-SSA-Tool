@@ -1,11 +1,51 @@
 # Response headers for Cloudflare Pages (ignored by other hosts).
 # https://developers.cloudflare.com/pages/configuration/headers/
-
+#
+# Content-Security-Policy, in report-only mode: the browser logs what it
+# would have blocked ("[Report Only]" in the console) and blocks nothing.
+# Switch to enforcing by renaming the header to Content-Security-Policy once
+# the live site shows no reports; docs/deployment-cloudflare.md says how.
+#
+# What it locks down:
+#   script-src   Only this site's own files, plus each page's inline scripts
+#                named by SHA-256 hash; there is no 'unsafe-inline', so an
+#                injected <script> tag or onclick= attribute does not run.
+#                A static export cannot use nonces (no server mints one per
+#                response), and each page's inline scripts differ, so
+#                scripts/csp-hashes.mjs adds the hashes after the build and
+#                writes one rule per page. The policy is otherwise the same
+#                on every page on purpose: moving between pages inside the
+#                app does not load a new document, so the first page's
+#                policy governs everything the visitor opens after it.
+#   connect-src  This site (including the /api/public proxy), the API on
+#                Render for signed-in calls and the screening stream, and
+#                Supabase for sign-in. Must match NEXT_PUBLIC_SDEBRIS_API_URL.
+#   worker-src   Cesium's workers, from /cesium/ or built from blob: URLs.
+#   img-src      data: and blob: for Cesium's textures and its own logo.
+#   font-src     'self' only: the typefaces are self-hosted by next/font.
+#   object-src 'none', base-uri 'self', form-action 'self',
+#   frame-ancestors 'none' (the modern form of X-Frame-Options: DENY).
+#
+# What it does not, and why (each found by loading the globe under a strict
+# policy and reading the reports):
+#   'unsafe-eval'       Cesium bundles Knockout, which calls (0,eval)("this")
+#                       to find the global object when the chunk loads.
+#                       Blocked, the whole Cesium chunk fails to start.
+#   'wasm-unsafe-eval'  Cesium compiles its mesh and texture decoders from
+#                       WebAssembly when the chunk loads. Narrower than
+#                       'unsafe-eval': it permits WebAssembly only.
+#   style-src 'unsafe-inline'  Cesium injects a <style> element for its credit
+#                       display and writes style attributes through
+#                       innerHTML. CSS injection is far less dangerous than
+#                       script injection, and nothing else is loosened for it.
+#   Top-level navigations (the OAuth hand-off to GitHub or Google, the Dodo
+#   checkout) are not covered by CSP at all.
 /*
   X-Frame-Options: DENY
   X-Content-Type-Options: nosniff
   Referrer-Policy: strict-origin-when-cross-origin
   Permissions-Policy: camera=(), microphone=(), geolocation=(), payment=()
+  Content-Security-Policy-Report-Only: default-src 'self'; script-src 'self' 'unsafe-eval' 'wasm-unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self'; connect-src 'self' https://sdebris-api.onrender.com https://*.supabase.co wss://*.supabase.co; worker-src 'self' blob:; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'
 
 # Content-hashed by the build, so they can be kept indefinitely.
 /_next/static/*

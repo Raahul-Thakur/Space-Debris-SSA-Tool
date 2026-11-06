@@ -95,6 +95,28 @@ curl -s -o /dev/null -D - https://astra-ssa.pages.dev/api/public/objects | grep 
 Sign in, run a screening, and open the pricing page to confirm checkout
 starts.
 
+## Enforcing the CSP
+
+`web/public/_headers` sets a `Content-Security-Policy-Report-Only` header:
+browsers report what the policy would block and block nothing. The build
+(`scripts/csp-hashes.mjs`) adds each page's inline-script hashes and writes
+one rule per page, so check the result in `out/_headers`, not the source.
+
+1. On the live address, open the browser's developer tools → *Console*, and
+   go through the site: the console page (let the globe load, and on a phone
+   press *Show 3D globe*), the guided tour, docs, pricing, sign-in with each
+   provider, the account page, and checkout as far as the payment page.
+   Any line starting `[Report Only]` is something the policy would block.
+2. If the API or Supabase address differs from the one in `connect-src`
+   (for example a custom API domain), edit `connect-src` to match first.
+3. When a full pass shows no `[Report Only]` lines, rename the header in
+   `web/public/_headers` from `Content-Security-Policy-Report-Only` to
+   `Content-Security-Policy` and redeploy. The build carries the new name
+   into every per-page rule. Then repeat step 1 once: a blocked request now
+   shows as `Refused to …` instead.
+
+To back out, rename it back and redeploy; nothing else depends on it.
+
 ## Run it locally
 
 ```bash
