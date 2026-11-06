@@ -74,11 +74,13 @@ from sdebris.ontology import (
 )
 from sdebris.ontology.enums import ActionType, JobStatus, OperatorRole
 from sdebris.ontology.orm import (
+    AlertRecord,
     BillingEventRecord,
     CommandExecutionRecord,
     ConjunctionEventRecord,
     ElementSetRecord,
     MonitoredObjectRecord,
+    MonitoringCaseRecord,
     RiskAssessmentRecord,
     ScreeningJobEventRecord,
     ScreeningJobRecord,
@@ -489,9 +491,33 @@ def _refresh_orbit(norad_id: str, session: Session) -> dict[str, object]:
     }
 
 
+def _owned_case(session: Session, case_id: str, principal: Principal) -> MonitoringCaseRecord:
+    """A case the principal may act on, or 404.
+
+    Writes are stricter than reads: an operator acts only on their own cases,
+    a case the platform opened is changed only by an administrator, and an
+    administrator acts on anything. Before this, any operator could close,
+    escalate or reassign any account's case by its id. Someone else's case is
+    a 404, not a 403, because confirming the id exists is itself a leak.
+    """
+    case = session.get(MonitoringCaseRecord, case_id)
+    if case is None or not owns(case.actor, principal, platform_is_public=False):
+        raise HTTPException(status_code=404, detail="case not found")
+    return case
+
+
+def _owned_alert(session: Session, alert_id: str, principal: Principal) -> AlertRecord:
+    """An alert the principal may act on, or 404; see ``_owned_case``."""
+    alert = session.get(AlertRecord, alert_id)
+    if alert is None or not owns(alert.actor, principal, platform_is_public=False):
+        raise HTTPException(status_code=404, detail="alert not found")
+    return alert
+
+
 def _execute_immediate_action(
-    action: str, arguments: dict[str, object], actor: str, session: Session
+    action: str, arguments: dict[str, object], principal: Principal, session: Session
 ) -> dict[str, object]:
+    actor = principal.actor
     if action == "orbit.refresh":
         return _refresh_orbit(str(arguments["norad_id"]), session)
     if action == "monitor.add":
@@ -530,6 +556,7 @@ def _execute_immediate_action(
     if action == "event.explain":
         return _event_explanation(str(arguments["event_id"]), session)
     if action == "case.assign":
+        _owned_case(session, str(arguments["case_id"]), principal)
         case = OntologyService(session, actor=actor).apply_case_action(
             str(arguments["case_id"]),
             ActionType.ASSIGN_CASE,
@@ -541,6 +568,7 @@ def _execute_immediate_action(
         )
         return {"case_id": case.id, "status": case.status, "assignee": case.assignee}
     if action == "case.close":
+        _owned_case(session, str(arguments["case_id"]), principal)
         case = OntologyService(session, actor=actor).apply_case_action(
             str(arguments["case_id"]),
             ActionType.CLOSE_CASE,
@@ -1201,7 +1229,7 @@ def create_app(database_url: str | None = None) -> FastAPI:
 
         try:
             result = _execute_immediate_action(
-                plan.action, plan.arguments, principal.actor, session
+                plan.action, plan.arguments, principal, session
             )
             execution.status = JobStatus.SUCCEEDED.value
             execution.result_payload = result
@@ -1507,6 +1535,7 @@ def create_app(database_url: str | None = None) -> FastAPI:
         principal: PrincipalDep,
     ):
         require_role(principal, OperatorRole.OPERATOR)
+        _owned_case(session, case_id, principal)
         payload = payload.model_copy(update={"actor": principal.actor})
         return OntologyService(session).apply_case_action(case_id, action, payload)
 
@@ -1520,6 +1549,7 @@ def create_app(database_url: str | None = None) -> FastAPI:
         principal: PrincipalDep,
     ):
         require_role(principal, OperatorRole.OPERATOR)
+        _owned_case(session, case_id, principal)
         payload = payload.model_copy(update={"actor": principal.actor})
         return OntologyService(session).record_decision(case_id, payload)
 
@@ -1536,6 +1566,7 @@ def create_app(database_url: str | None = None) -> FastAPI:
         principal: PrincipalDep,
     ):
         require_role(principal, OperatorRole.OPERATOR)
+        _owned_alert(session, alert_id, principal)
         payload = payload.model_copy(update={"actor": principal.actor})
         return OntologyService(session).acknowledge_alert(alert_id, payload)
 

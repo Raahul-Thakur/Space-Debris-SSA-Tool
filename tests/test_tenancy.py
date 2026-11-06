@@ -326,3 +326,75 @@ def test_an_administrator_still_sees_the_whole_feed(client: TestClient) -> None:
     root = _headers(client, "root", "admin")
     job_id = _start_job(client, alice)
     assert job_id in _feed_text(client, root)
+
+
+# -------------------------------------------------- acting on someone's case
+def _event(client: TestClient) -> str:
+    admin = _headers(client, "seed", "admin")
+    for norad, name in (("25544", "ISS"), ("99999", "DEBRIS")):
+        client.post("/objects", headers=admin,
+                    json={"norad_id": norad, "name": name, "orbit_class": "LEO", "status": "active"})
+    run = client.post("/screening-runs", headers=admin,
+                      json={"propagator_version": "t", "configuration": {}, "input_versions": {}}).json()
+    event = client.post("/events", headers=admin, json={
+        "primary_norad_id": "25544", "secondary_norad_id": "99999",
+        "screening_run_id": run["id"], "tca": "2026-12-01T00:00:00+00:00",
+        "miss_distance_km": 0.8, "relative_speed_km_s": 11.0,
+    })
+    assert event.status_code == 201, event.text
+    return event.json()["id"]
+
+
+def _open_case(client: TestClient, headers: dict[str, str], event_id: str) -> str:
+    response = client.post(f"/events/{event_id}/cases", headers=headers, json={
+        "title": "Watch this", "priority": "P2", "actor": "ignored", "justification": "opening",
+    })
+    assert response.status_code == 201, response.text
+    return response.json()["id"]
+
+
+def test_an_operator_cannot_close_another_operators_case(client: TestClient) -> None:
+    event_id = _event(client)
+    alice = _headers(client, "alice", "operator")
+    bob = _headers(client, "bob", "operator")
+    case_id = _open_case(client, alice, event_id)
+    body = {"actor": "ignored", "justification": "closing it"}
+
+    assert client.post(f"/cases/{case_id}/actions/close_case", headers=bob, json=body).status_code == 404
+    decision = {"selected_action": "accept", "justification": "fine", "actor": "x"}
+    assert client.post(f"/cases/{case_id}/decisions", headers=bob, json=decision).status_code == 404
+    assert client.post(f"/cases/{case_id}/actions/close_case", headers=alice, json=body).status_code == 200
+
+
+def test_the_console_cannot_reassign_another_operators_case(client: TestClient) -> None:
+    event_id = _event(client)
+    alice = _headers(client, "alice", "operator")
+    bob = _headers(client, "bob", "operator")
+    case_id = _open_case(client, alice, event_id)
+    response = client.post("/commands/execute", headers=bob,
+                           json={"command": f"case assign {case_id} bob"})
+    assert response.status_code != 200 or response.json().get("status") == "failed", response.text
+    cases = client.get("/cases", headers=alice).json()
+    assert next(case for case in cases if case["id"] == case_id)["assignee"] != "bob"
+
+
+def test_an_administrator_can_act_on_any_case(client: TestClient) -> None:
+    event_id = _event(client)
+    alice = _headers(client, "alice", "operator")
+    root = _headers(client, "root", "admin")
+    case_id = _open_case(client, alice, event_id)
+    body = {"actor": "ignored", "justification": "escalating", "priority": "P1"}
+    assert client.post(f"/cases/{case_id}/actions/escalate_event", headers=root, json=body).status_code == 200
+
+
+def test_an_operator_cannot_acknowledge_another_operators_alert(client: TestClient) -> None:
+    event_id = _event(client)
+    alice = _headers(client, "alice", "operator")
+    bob = _headers(client, "bob", "operator")
+    alert = client.post("/alerts", headers=alice,
+                        json={"event_id": event_id, "rule": "critical", "channel": "email"})
+    assert alert.status_code == 201, alert.text
+    body = {"actor": "ignored", "justification": "seen it"}
+    alert_id = alert.json()["id"]
+    assert client.post(f"/alerts/{alert_id}/acknowledge", headers=bob, json=body).status_code == 404
+    assert client.post(f"/alerts/{alert_id}/acknowledge", headers=alice, json=body).status_code == 200
