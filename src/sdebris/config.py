@@ -78,7 +78,9 @@ class IngestionConfig(BaseModel):
 class PropagationConfig(BaseModel):
     window_hours: float = 72.0
     step_sec: int = 60
-    refine_step_sec: int = 1
+    #: Convergence tolerance of the TCA root-find on exact SGP4 states. The
+    #: older ``refine_step_sec`` key was never read and is ignored if present.
+    tca_tolerance_sec: float = Field(default=1e-3, gt=0)
 
 
 class ScreeningConfig(BaseModel):

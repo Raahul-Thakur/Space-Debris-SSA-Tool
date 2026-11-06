@@ -1,7 +1,8 @@
 """Target-centric conjunction screening.
 
-Screens a catalog group against one target object (any NORAD id), finds close
-approaches, refines each to its TCA, decomposes the geometry into RAC components,
+Screens a catalog group against one target object (any NORAD id), finds every
+close approach in the window (a pair can have several), refines each to its
+TCA on exact SGP4 states, decomposes the geometry into RAC components,
 estimates collision probability, and assigns a risk tier.
 """
 
@@ -10,18 +11,25 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 
-import numpy as np
 import pandas as pd
 
 from sdebris.config import Config
 from sdebris.models import SpaceObject
 from sdebris.propagation import make_time_grid, propagate_objects
 from sdebris.risk.classify import RiskTier, classify_event
-from sdebris.risk.pc import build_ric_covariance, probability_of_collision, ric_to_eci_covariance
+from sdebris.risk.pc import (
+    build_ric_covariance,
+    clamp_probability,
+    probability_of_collision,
+    ric_to_eci_covariance,
+)
 from sdebris.screening.frames import ric_components
-from sdebris.screening.tca import refine_tca
+from sdebris.screening.tca import TCAResult, find_close_approach_candidates, refine_tca_sgp4
 
 KM_TO_M = 1000.0
+#: Secondaries screened per vectorised block; bounds the temporary relative
+#: state arrays to ~(block x grid x 3) floats whatever the catalog size.
+_SCREEN_BLOCK = 256
 
 
 @dataclass(frozen=True)
@@ -125,7 +133,6 @@ def screen_target(
 
     prop = config.propagation
     screen_cfg = config.screening
-    risk_cfg = config.risk
 
     # Build the object set: target first, then catalog minus the target.
     others = [o for o in catalog if o.norad_id != target.norad_id]
@@ -135,80 +142,44 @@ def screen_target(
     eph = propagate_objects(objects, times, fail_on_error=False)
     epoch_seconds = eph.epoch_seconds
 
-    t_idx = 0  # target is index 0 by construction
-    target_pos = eph.positions[t_idx]
-    target_vel = eph.velocities[t_idx]
-    target_valid = eph.valid[t_idx]
-    target_cov_ric = build_ric_covariance(risk_cfg, target.age_days(start))
+    target_pos = eph.positions[0]  # target is index 0 by construction
+    target_vel = eph.velocities[0]
+    target_valid = eph.valid[0]
+    satrecs = eph.satrecs or []
 
+    n_stale = sum(
+        1 for sec in others if sec.is_stale(config.ingestion.stale_after_days, start)
+    )
     events: list[ConjunctionEvent] = []
-    n_stale = 0
 
-    for j in range(1, len(objects)):
-        sec = objects[j]
-        if sec.is_stale(config.ingestion.stale_after_days, start):
-            n_stale += 1
-
-        both_valid = target_valid & eph.valid[j]
-        if not both_valid.any():
+    for first in range(1, len(objects), _SCREEN_BLOCK):
+        block = slice(first, min(first + _SCREEN_BLOCK, len(objects)))
+        valid = eph.valid[block] & target_valid
+        if not valid.any():
             continue
-
-        sep = np.full(len(times), np.inf)
-        sep[both_valid] = np.linalg.norm(
-            eph.positions[j][both_valid] - target_pos[both_valid], axis=1
+        candidates = find_close_approach_candidates(
+            epoch_seconds,
+            eph.positions[block] - target_pos,
+            eph.velocities[block] - target_vel,
+            valid,
+            screen_cfg.coarse_threshold_km,
         )
-        if np.nanmin(sep) > screen_cfg.coarse_threshold_km:
-            continue
-
-        # Restrict TCA refinement to the valid, finite span.
-        mask = np.isfinite(sep)
-        tca = refine_tca(
-            epoch_seconds[mask],
-            target_pos[mask], target_vel[mask],
-            eph.positions[j][mask], eph.velocities[j][mask],
-        )
-        if tca.miss_distance_km > screen_cfg.report_threshold_km:
-            continue
-
-        radial, along, cross = ric_components(tca.r_primary, tca.v_primary, tca.r_secondary)
-
-        sec_cov_ric = build_ric_covariance(risk_cfg, sec.age_days(start))
-        cov_eci = (
-            ric_to_eci_covariance(target_cov_ric * 1.0, tca.r_primary, tca.v_primary)
-            + ric_to_eci_covariance(sec_cov_ric, tca.r_secondary, tca.v_secondary)
-        )
-        pc = probability_of_collision(
-            (tca.r_secondary - tca.r_primary) * KM_TO_M,
-            (tca.v_secondary - tca.v_primary) * KM_TO_M,
-            cov_eci,
-            risk_cfg.hard_body_radius_m,
-        )
-        # Normalize floating-point negative zero and guard the probability range.
-        pc = max(0.0, min(1.0, float(pc)))
-
-        tier, reason = classify_event(tca.miss_distance_km, pc, risk_cfg)
-        tca_dt = pd.Timestamp(tca.tca_seconds, unit="s", tz="UTC").to_pydatetime(warn=False)
-
-        events.append(
-            ConjunctionEvent(
-                target_norad=target.norad_id,
-                target_name=target.name,
-                secondary_norad=sec.norad_id,
-                secondary_name=sec.name,
-                tca=tca_dt,
-                miss_distance_km=tca.miss_distance_km,
-                relative_speed_km_s=tca.relative_speed_km_s,
-                radial_km=radial,
-                along_track_km=along,
-                cross_track_km=cross,
-                probability_of_collision=pc,
-                risk_tier=tier.value,
-                risk_reason=reason,
-                target_tle_age_days=target.age_days(start),
-                secondary_tle_age_days=sec.age_days(start),
-                secondary_stale=sec.is_stale(config.ingestion.stale_after_days, start),
+        last_tca: dict[int, float] = {}
+        for obj, k, bracket in zip(candidates.obj, candidates.k, candidates.bracket):
+            j = first + int(obj)
+            t_lo = float(epoch_seconds[k])
+            t_hi = float(epoch_seconds[k + 1]) if bracket else t_lo
+            tca = refine_tca_sgp4(
+                satrecs[0], satrecs[j], t_lo, t_hi, tol_sec=prop.tca_tolerance_sec
             )
-        )
+            if tca is None or tca.miss_distance_km > screen_cfg.report_threshold_km:
+                continue
+            # Candidates of one pair arrive in time order; two brackets can only
+            # converge on the same instant if the minimum sits on a grid sample.
+            if j in last_tca and abs(tca.tca_seconds - last_tca[j]) <= prop.tca_tolerance_sec:
+                continue
+            last_tca[j] = tca.tca_seconds
+            events.append(_build_event(target, objects[j], tca, config, start))
 
     return ScreeningResult(
         target_norad=target.norad_id,
@@ -221,4 +192,54 @@ def screen_target(
         n_screened=len(others),
         n_stale=n_stale,
         events=events,
+    )
+
+
+def _build_event(
+    target: SpaceObject,
+    sec: SpaceObject,
+    tca: TCAResult,
+    config: Config,
+    start: datetime,
+) -> ConjunctionEvent:
+    """Turn one refined close approach into a classified event."""
+    risk_cfg = config.risk
+    radial, along, cross = ric_components(tca.r_primary, tca.v_primary, tca.r_secondary)
+    tca_dt = pd.Timestamp(tca.tca_seconds, unit="s", tz="UTC").to_pydatetime(warn=False)
+
+    # The synthetic covariance grows with TLE age, so take the age at the
+    # moment of closest approach, not at the start of the window.
+    target_age = target.age_days(tca_dt)
+    sec_age = sec.age_days(tca_dt)
+    cov_eci = (
+        ric_to_eci_covariance(build_ric_covariance(risk_cfg, target_age), tca.r_primary, tca.v_primary)
+        + ric_to_eci_covariance(build_ric_covariance(risk_cfg, sec_age), tca.r_secondary, tca.v_secondary)
+    )
+    pc = clamp_probability(
+        probability_of_collision(
+            (tca.r_secondary - tca.r_primary) * KM_TO_M,
+            (tca.v_secondary - tca.v_primary) * KM_TO_M,
+            cov_eci,
+            risk_cfg.hard_body_radius_m,
+        )
+    )
+    tier, reason = classify_event(tca.miss_distance_km, pc, risk_cfg)
+
+    return ConjunctionEvent(
+        target_norad=target.norad_id,
+        target_name=target.name,
+        secondary_norad=sec.norad_id,
+        secondary_name=sec.name,
+        tca=tca_dt,
+        miss_distance_km=tca.miss_distance_km,
+        relative_speed_km_s=tca.relative_speed_km_s,
+        radial_km=radial,
+        along_track_km=along,
+        cross_track_km=cross,
+        probability_of_collision=pc,
+        risk_tier=tier.value,
+        risk_reason=reason,
+        target_tle_age_days=target_age,
+        secondary_tle_age_days=sec_age,
+        secondary_stale=sec.is_stale(config.ingestion.stale_after_days, start),
     )
