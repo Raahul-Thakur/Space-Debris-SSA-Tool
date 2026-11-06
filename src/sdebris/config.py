@@ -15,9 +15,32 @@ import yaml
 from dotenv import load_dotenv
 from pydantic import BaseModel, Field
 
-# Repository root resolved relative to this file: src/sdebris/config.py -> repo/
 PACKAGE_ROOT = Path(__file__).resolve().parent
-REPO_ROOT = PACKAGE_ROOT.parent.parent
+
+
+def locate_home(package_root: Path, env: dict[str, str], cwd: Path) -> Path:
+    """Find the directory that holds ``configs/`` and ``data/``.
+
+    In a source checkout (or an editable install) that is two levels above
+    the package: ``src/sdebris/config.py`` -> the repository. A regular
+    ``pip install`` copies the package into site-packages instead, where the
+    same arithmetic lands inside Python's own library directory, which the
+    container's service user cannot write to: the config was never read and
+    the TLE cache could not be created there. ``SDEBRIS_HOME`` names the directory
+    outright, which is what the container does; failing that, a checkout is
+    recognised by its config file, and anything else uses the working
+    directory.
+    """
+    explicit = env.get("SDEBRIS_HOME", "").strip()
+    if explicit:
+        return Path(explicit).expanduser().resolve()
+    checkout = package_root.parent.parent
+    if (checkout / "configs" / "default.yaml").exists():
+        return checkout
+    return cwd.resolve()
+
+
+REPO_ROOT = locate_home(PACKAGE_ROOT, dict(os.environ), Path.cwd())
 DEFAULT_CONFIG_PATH = REPO_ROOT / "configs" / "default.yaml"
 ENV_FILE = REPO_ROOT / ".env"
 

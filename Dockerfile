@@ -1,8 +1,12 @@
 FROM python:3.12-slim
 
+# SDEBRIS_HOME: the package is installed into site-packages, so it cannot
+# find configs/ or a writable data/ directory relative to itself. /app holds
+# both and is owned by the user the service runs as.
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
-    PIP_NO_CACHE_DIR=1
+    PIP_NO_CACHE_DIR=1 \
+    SDEBRIS_HOME=/app
 
 RUN apt-get update && apt-get install -y --no-install-recommends postgresql-client curl \
     && rm -rf /var/lib/apt/lists/*
