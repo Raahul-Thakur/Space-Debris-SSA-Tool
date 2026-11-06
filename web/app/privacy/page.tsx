@@ -4,7 +4,7 @@ import SiteFooter from "@/components/SiteFooter";
 import { CONTACT_EMAIL } from "@/lib/contact";
 
 export const metadata: Metadata = {
-  title: "Privacy · Astra / SSA",
+  title: "Privacy",
   description:
     "What the Astra space situational awareness console collects, who processes it, and how to have it deleted."
 };

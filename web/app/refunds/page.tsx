@@ -4,7 +4,7 @@ import SiteFooter from "@/components/SiteFooter";
 import { CONTACT_EMAIL } from "@/lib/contact";
 
 export const metadata: Metadata = {
-  title: "Refunds · Astra / SSA",
+  title: "Refunds",
   description: "When and how a payment for the Astra Pro plan is refunded."
 };
 

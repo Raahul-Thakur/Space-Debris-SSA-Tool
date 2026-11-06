@@ -1,7 +1,8 @@
 import AccountPanel from "@/components/AccountPanel";
 
 export const metadata = {
-  title: "Account / ASTRA SSA",
+  title: "Account",
+  robots: { index: false },
   description: "Your plan, your usage this month, and the runs you have made."
 };
 

@@ -1,7 +1,8 @@
 import SignIn from "@/components/SignIn";
 
 export const metadata = {
-  title: "Sign in / ASTRA SSA",
+  title: "Sign in",
+  robots: { index: false },
   description: "Request a secure sign-in link to run screenings of your own."
 };
 

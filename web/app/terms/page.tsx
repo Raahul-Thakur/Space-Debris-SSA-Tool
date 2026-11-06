@@ -4,7 +4,7 @@ import SiteFooter from "@/components/SiteFooter";
 import { CONTACT_EMAIL } from "@/lib/contact";
 
 export const metadata: Metadata = {
-  title: "Terms · Astra / SSA",
+  title: "Terms",
   description:
     "The terms for using the Astra space situational awareness console and buying its Pro plan."
 };
