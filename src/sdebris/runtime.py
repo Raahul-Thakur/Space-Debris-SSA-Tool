@@ -38,9 +38,31 @@ def configure_logging() -> None:
 #: Job backends the API will start under in production.
 PRODUCTION_JOB_BACKENDS = ("thread", "redis")
 
+#: Every value ``SDEBRIS_ENV`` may take.
+ENVIRONMENTS = ("production", "development")
+
+
+def current_environment() -> str:
+    """Which environment this process runs in, failing closed.
+
+    An unset ``SDEBRIS_ENV`` used to mean development, so a deployment that
+    lost the variable would skip every production check and serve the
+    development token route, which mints admin tokens. It now means
+    production, and only an explicit ``development`` relaxes anything. A
+    value that is neither (``prod``, ``staging``, a stray space was once
+    enough) is refused at startup instead of being treated as one or the
+    other.
+    """
+    value = (os.getenv("SDEBRIS_ENV") or "production").strip().lower()
+    if value not in ENVIRONMENTS:
+        raise RuntimeError(
+            f"SDEBRIS_ENV must be one of {', '.join(ENVIRONMENTS)}; got {value!r}"
+        )
+    return value
+
 
 def validate_environment() -> None:
-    if os.getenv("SDEBRIS_ENV", "development").lower() != "production":
+    if current_environment() != "production":
         return
     backend = os.getenv("SDEBRIS_JOB_BACKEND", "thread").lower()
     if backend not in PRODUCTION_JOB_BACKENDS:

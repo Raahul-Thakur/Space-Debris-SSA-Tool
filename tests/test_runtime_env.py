@@ -98,3 +98,30 @@ def test_development_skips_every_check(monkeypatch) -> None:
         SDEBRIS_CORS_ORIGINS="http://localhost:3000",
     )
     validate_environment()
+
+
+# ------------------------------------------------------- failing closed
+def test_an_unset_environment_means_production(monkeypatch) -> None:
+    """It used to mean development, which skipped every production check."""
+    from sdebris.runtime import current_environment
+
+    monkeypatch.delenv("SDEBRIS_ENV", raising=False)
+    assert current_environment() == "production"
+
+
+@pytest.mark.parametrize("value", ["prod", "staging", "Production ", " development"])
+def test_an_unknown_environment_is_refused_not_guessed(monkeypatch, value: str) -> None:
+    from sdebris.runtime import current_environment
+
+    monkeypatch.setenv("SDEBRIS_ENV", value)
+    if value.strip().lower() in ("production", "development"):
+        assert current_environment() == value.strip().lower()
+    else:
+        with pytest.raises(RuntimeError, match="SDEBRIS_ENV must be one of"):
+            current_environment()
+
+
+def test_an_unset_environment_runs_the_production_checks(monkeypatch) -> None:
+    _apply(monkeypatch, SDEBRIS_ENV=None, SDEBRIS_AUTH_JWKS_URL=None)
+    with pytest.raises(RuntimeError, match="SDEBRIS_AUTH_JWKS_URL"):
+        validate_environment()

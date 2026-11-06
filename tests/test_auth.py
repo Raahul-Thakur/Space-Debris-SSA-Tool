@@ -66,3 +66,24 @@ def test_production_refuses_to_mint_development_tokens(monkeypatch, tmp_path) ->
             assert (await client.get("/health")).status_code == 200
 
     asyncio.run(scenario())
+
+
+def test_the_development_token_route_does_not_exist_in_production(monkeypatch, tmp_path) -> None:
+    """Not refused: absent, so it is not even listed in the API docs."""
+    from fastapi.testclient import TestClient
+
+    from sdebris.api.app import create_app
+
+    monkeypatch.setenv("SDEBRIS_ENV", "production")
+    monkeypatch.setenv("SDEBRIS_JOB_BACKEND", "thread")
+    monkeypatch.setenv("SDEBRIS_DATABASE_URL", "postgresql+psycopg://u:p@h:6543/db")
+    monkeypatch.setenv(
+        "SDEBRIS_AUTH_JWKS_URL", "https://project.supabase.co/auth/v1/.well-known/jwks.json"
+    )
+    monkeypatch.setenv("SDEBRIS_AUTH_ISSUER", "https://project.supabase.co/auth/v1")
+    monkeypatch.setenv("SDEBRIS_CORS_ORIGINS", "https://astra-ssa.pages.dev")
+    app = create_app(f"sqlite:///{tmp_path / 'prod.sqlite'}")
+    paths = {route.path for route in app.routes}
+    assert "/auth/development-token" not in paths
+    with TestClient(app) as client:
+        assert client.post("/auth/development-token").status_code in (404, 405)

@@ -16,6 +16,7 @@ from fastapi import Depends, HTTPException, Request
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 
 from sdebris.ontology.enums import OperatorRole
+from sdebris.runtime import current_environment
 
 ROLE_RANK = {
     OperatorRole.VIEWER: 0,
@@ -38,7 +39,7 @@ class Principal:
 
 class Authenticator:
     def __init__(self) -> None:
-        self.environment = os.getenv("SDEBRIS_ENV", "development").lower()
+        self.environment = current_environment()
         self.jwks_url = os.getenv("SDEBRIS_AUTH_JWKS_URL")
         self.issuer = os.getenv("SDEBRIS_AUTH_ISSUER")
         self.audience = os.getenv("SDEBRIS_AUTH_AUDIENCE", "authenticated")

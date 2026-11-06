@@ -33,3 +33,8 @@ os.environ["SDEBRIS_SKIP_DOTENV"] = "1"
 # sourced their production configuration still gets a hermetic run.
 for name in LEAKY_VARIABLES:
     os.environ.pop(name, None)
+
+# The suite runs as development, explicitly: an unset SDEBRIS_ENV now means
+# production, and the fixtures sign in with development tokens. Tests of the
+# production behaviour set it themselves.
+os.environ["SDEBRIS_ENV"] = "development"

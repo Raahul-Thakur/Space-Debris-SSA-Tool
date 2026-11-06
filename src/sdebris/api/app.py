@@ -773,19 +773,24 @@ def create_app(database_url: str | None = None) -> FastAPI:
             "role": principal.role.value,
         }
 
-    @app.post("/auth/development-token")
-    def development_token(
-        subject: str = "local-operator", role: OperatorRole = OperatorRole.ADMIN
-    ) -> dict[str, str]:
-        """Mint a local token. Refuses outside development, in the issuer.
+    if authenticator.environment == "development":
+        # Registered only in development, so production has no such route to
+        # find, even in the API docs. The issuer refuses outside development
+        # as well, as a second line.
+        @app.post("/auth/development-token")
+        def development_token(
+            subject: str = "local-operator", role: OperatorRole = OperatorRole.ADMIN
+        ) -> dict[str, str]:
+            """Mint a local token for development.
 
-        The parameters were previously ignored, so every development token was
-        the same admin principal and anything multi-user -- role gating, data
-        scoping -- could not be exercised without a real identity provider.
-        """
-        return {
-            "access_token": authenticator.issue_development_token(subject, role)
-        }
+            The parameters were previously ignored, so every development token
+            was the same admin principal and anything multi-user -- role
+            gating, data scoping -- could not be exercised without a real
+            identity provider.
+            """
+            return {
+                "access_token": authenticator.issue_development_token(subject, role)
+            }
 
     @app.get("/ontology", response_model=OntologyDescription)
     def describe_ontology() -> Response:
