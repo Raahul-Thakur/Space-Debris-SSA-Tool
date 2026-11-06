@@ -116,14 +116,22 @@ class AlertDispatcher:
         msg["Subject"] = "[sdebris] Critical conjunction alert"
         msg["From"] = self.config.alerts.email.sender
         msg["To"] = ", ".join(self.config.alerts.email.recipients)
-        with smtplib.SMTP(host, port) as server:
+        # A timeout, so an unreachable mail server cannot hang the screening
+        # that raised the alert.
+        with smtplib.SMTP(host, port, timeout=15) as server:
             server.starttls()
             if user and password:
                 server.login(user, password)
             server.send_message(msg)
 
     def _send_webhook(self, url: str, body: str) -> None:
+        # The URL is a secret: for Slack and Discord the token is in its path.
+        # A requests error includes the URL, and the scheduled screening
+        # prints into a public Actions log, where only the exact secret
+        # string is masked. So nothing derived from the URL is printed.
         try:
-            requests.post(url, json={"text": body}, timeout=15)
+            response = requests.post(url, json={"text": body}, timeout=15)
+            if response.status_code >= 400:
+                print(f"[sdebris] Webhook delivery failed: HTTP {response.status_code}")
         except requests.RequestException as exc:
-            print(f"[sdebris] Webhook delivery failed: {exc}")
+            print(f"[sdebris] Webhook delivery failed: {type(exc).__name__}")

@@ -24,7 +24,39 @@ class JsonFormatter(logging.Formatter):
             value = getattr(record, field, None)
             if value is not None:
                 payload[field] = value
+        # Without these a logged exception arrived as one line with no
+        # traceback, which is most of what makes a production error fixable.
+        if record.exc_info:
+            payload["exception"] = self.formatException(record.exc_info)
+        if record.stack_info:
+            payload["stack"] = self.formatStack(record.stack_info)
         return json.dumps(payload, separators=(",", ":"))
+
+
+def configure_error_tracking() -> bool:
+    """Send unhandled errors to Sentry when ``SENTRY_DSN`` is set.
+
+    Returns whether it was enabled. Off by default, and when on it sends no
+    personal data: no request bodies, cookies, headers, IP addresses or
+    user emails (``send_default_pii=False``, with request bodies dropped),
+    which keeps the privacy page's description of what is collected true.
+    """
+    dsn = os.getenv("SENTRY_DSN", "").strip()
+    if not dsn:
+        return False
+    import sentry_sdk
+
+    from sdebris import __version__
+
+    sentry_sdk.init(
+        dsn=dsn,
+        environment=current_environment(),
+        release=f"sdebris@{__version__}",
+        send_default_pii=False,
+        max_request_body_size="never",
+        traces_sample_rate=float(os.getenv("SENTRY_TRACES_SAMPLE_RATE", "0") or 0),
+    )
+    return True
 
 
 def configure_logging() -> None:

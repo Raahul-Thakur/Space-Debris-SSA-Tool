@@ -139,6 +139,7 @@ from sdebris.ratelimit import (
     trajectory_samples,
 )
 from sdebris.runtime import (
+    configure_error_tracking,
     configure_logging,
     current_environment,
     request_log_middleware,
@@ -676,6 +677,7 @@ def create_app(database_url: str | None = None) -> FastAPI:
     load_env()
     configure_logging()
     validate_environment()
+    configure_error_tracking()
     database = Database(database_url)
     jobs = ScreeningJobManager(database.session_factory)
     streams = StreamSlots(MAX_STREAMS_PER_ACCOUNT, MAX_STREAMS)
@@ -1968,6 +1970,9 @@ def create_app(database_url: str | None = None) -> FastAPI:
                 secret=secret, headers=dict(request.headers), body=body
             )
         except WebhookError as exc:
+            # Logged: a run of these means a wrong secret or someone probing,
+            # and Dodo stops retrying after a while, so a grant can be lost.
+            billing_log.warning("billing webhook rejected: %s", exc)
             raise HTTPException(status_code=400, detail=str(exc)) from exc
 
         try:

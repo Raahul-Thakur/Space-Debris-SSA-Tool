@@ -36,6 +36,8 @@ api = [
   "PyJWT[crypto]>=2.9,<3",
   "psycopg[binary]>=3.2,<4",
   "dramatiq[redis]>=1.17,<2",
+  # Error tracking. Inactive unless SENTRY_DSN is set; see sdebris.runtime.
+  "sentry-sdk[fastapi]>=2,<3",
 ]
 alerts = ["sendgrid>=6.10"]
 dev = [
