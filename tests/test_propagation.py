@@ -1,7 +1,10 @@
+from datetime import datetime, timezone
+
 import numpy as np
 
 from sdebris.models import SpaceObject
 from sdebris.propagation import make_time_grid, propagate_objects
+from sdebris.propagation.sgp4_prop import Ephemeris
 
 ISS_L1 = "1 25544U 98067A   24001.00000000  .00016717  00000+0  10270-3 0  9003"
 ISS_L2 = "2 25544  51.6421  10.3493 0006703  88.3949  31.2568 15.50015354  9008"
@@ -23,3 +26,20 @@ def test_propagate_iss_is_in_leo() -> None:
     assert np.all((radius > 6600) & (radius < 6900))
     speed = np.linalg.norm(eph.velocities[0], axis=1)
     assert np.all((speed > 7.0) & (speed < 8.5))  # ~7.66 km/s
+
+
+def test_epoch_seconds_match_unix_time_at_any_resolution() -> None:
+    """Epoch seconds are unix seconds whatever unit pandas picks for the grid."""
+    start = datetime(2026, 11, 6, tzinfo=timezone.utc)
+    grid = make_time_grid(start, window_hours=1, step_sec=60)
+    for unit in ("s", "ms", "us", "ns"):
+        eph = Ephemeris(
+            times=grid.as_unit(unit),
+            norad_ids=[],
+            names=[],
+            positions=np.empty((0, len(grid), 3)),
+            velocities=np.empty((0, len(grid), 3)),
+            valid=np.empty((0, len(grid)), dtype=bool),
+        )
+        assert eph.epoch_seconds[0] == start.timestamp()
+        assert eph.epoch_seconds[1] - eph.epoch_seconds[0] == 60

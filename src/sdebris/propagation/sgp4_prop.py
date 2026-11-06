@@ -16,6 +16,8 @@ from sgp4.api import SGP4_ERRORS, Satrec, jday
 
 from sdebris.models import SpaceObject
 
+_UNIX_EPOCH = pd.Timestamp("1970-01-01", tz="UTC")
+
 
 def make_time_grid(
     start: datetime | pd.Timestamp | None = None,
@@ -62,8 +64,11 @@ class Ephemeris:
 
     @property
     def epoch_seconds(self) -> np.ndarray:
-        # asi8 is int64 nanoseconds since the UNIX epoch.
-        return self.times.asi8 / 1e9
+        # Measured as a duration from the UNIX epoch rather than read off the
+        # raw integers: pandas 2 stores a grid in nanoseconds and pandas 3 in
+        # microseconds, and dividing the integers by a fixed 1e9 under pandas 3
+        # put every time of closest approach in January 1970.
+        return ((self.times - _UNIX_EPOCH) / pd.Timedelta(seconds=1)).to_numpy(dtype=float)
 
     def index_of(self, norad_id: str) -> int:
         return self.norad_ids.index(str(norad_id))

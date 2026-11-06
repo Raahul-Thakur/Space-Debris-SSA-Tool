@@ -1,4 +1,4 @@
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 
 from sdebris.config import load_config
 from sdebris.models import SpaceObject
@@ -39,3 +39,23 @@ def test_screen_excludes_self() -> None:
     result = screen_target(target, [target], _config(), start=START)
     assert result.n_screened == 0
     assert result.events == []
+
+
+def test_tca_falls_inside_the_screening_window() -> None:
+    """The time of closest approach is a real date inside the window.
+
+    pandas 3 builds a microsecond-resolution grid where pandas 2 built a
+    nanosecond one, and a conversion that assumed nanoseconds put every TCA
+    in January 1970 while leaving miss distances correct. Nothing here
+    checked the date, so it shipped.
+    """
+    target = SpaceObject("25544", "ISS", ISS_L1, ISS_L2)
+    clone = SpaceObject("99999", "ISS-CLONE", ISS_L1.replace("25544", "99999"),
+                        ISS_L2.replace("25544", "99999"))
+    cfg = _config()
+    result = screen_target(target, [clone], cfg, start=START)
+    assert result.events
+    end = START + timedelta(hours=cfg.propagation.window_hours)
+    for event in result.events:
+        tca = event.tca
+        assert START <= tca <= end, f"TCA {tca} is outside {START} .. {end}"
