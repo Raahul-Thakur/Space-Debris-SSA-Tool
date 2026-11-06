@@ -42,8 +42,10 @@ def _validation_checks(result: ScreeningResult) -> dict[str, object]:
             issues.append("negative miss distance detected")
         if (df["probability_of_collision"] < 0).any() or (df["probability_of_collision"] > 1).any():
             issues.append("Pc outside [0, 1]")
-        if df["secondary_norad"].duplicated().any():
-            issues.append("duplicate secondary objects in event list")
+        # One pair can now pass close more than once in a window, so the same
+        # secondary may appear several times; the same pass twice is the error.
+        if df.duplicated(subset=["secondary_norad", "tca_utc"]).any():
+            issues.append("duplicate close approach in event list")
     return {
         "passed": not issues,
         "issues": issues,

@@ -103,7 +103,7 @@ def persist_screening_result(
                     "secondary_tle_age_days": event.secondary_tle_age_days,
                     "secondary_stale": event.secondary_stale,
                 },
-                model_version="foster-chan-v1",
+                model_version="foster-v2",
                 explanation=event.risk_reason,
             ),
         )

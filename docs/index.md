@@ -13,8 +13,8 @@ operator console, and a scheduled GitHub Actions pipeline.
 - **Vectorised SGP4 propagation** producing ECI (TEME) state vectors.
 - **Target-centric screening**: miss distance, refined time of closest approach
   (TCA), and radial / along-track / cross-track (RAC) geometry.
-- **Collision probability (Pc)** from Chan's analytic series in the encounter
-  (conjunction) plane.
+- **Collision probability (Pc)** from Foster's method: the exact integral of the
+  combined position uncertainty over the hard body in the encounter plane.
 - **Tiered risk classification** (critical / watch / nominal).
 - **Structured output**: canonical CSV + JSON metadata with validation checks.
 - **Interactive UI**: 3D orbit view, ground tracks, and analytics charts.

@@ -185,3 +185,31 @@ def test_retired_refine_step_sec_key_still_loads(tmp_path) -> None:
     override.write_text("propagation:\n  refine_step_sec: 1\n", encoding="utf-8")
     cfg = load_config(override)
     assert cfg.propagation.tca_tolerance_sec == pytest.approx(1e-3)
+
+
+def test_a_report_with_two_passes_of_one_pair_still_validates() -> None:
+    """The validator flagged any repeated secondary, which is now normal."""
+    from datetime import datetime, timezone
+
+    import pandas as pd
+
+    from sdebris.reports import writer
+
+    class _Result:
+        n_stale = 0
+
+        def to_dataframe(self):
+            return pd.DataFrame(
+                {
+                    "secondary_norad": ["99999", "99999"],
+                    "tca_utc": [
+                        datetime(2026, 11, 7, 1, tzinfo=timezone.utc).isoformat(),
+                        datetime(2026, 11, 7, 3, tzinfo=timezone.utc).isoformat(),
+                    ],
+                    "miss_distance_km": [2.0, 3.0],
+                    "probability_of_collision": [1e-6, 1e-7],
+                }
+            )
+
+    checks = writer._validation_checks(_Result())
+    assert checks["passed"], checks["issues"]

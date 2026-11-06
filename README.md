@@ -33,7 +33,7 @@ all exposed through a CLI, a Next.js operator console, and a scheduled CI pipeli
 | Phase | Capability |
 |-------|------------|
 | **1 — Foundation** | CelesTrak ingestion · SQLite cache with epoch & staleness tracking · vectorised SGP4 propagation · installable `src/` package · pytest suite |
-| **2 — Screening** | Target-centric miss distance · TCA refined by range-rate bisection · RAC decomposition · Chan **Pc** in the encounter plane · TLE-age-weighted uncertainty · tiered risk · canonical CSV + JSON reports · `sdebris` CLI |
+| **2 — Screening** | Target-centric miss distance · every close approach per pair, refined on exact SGP4 states · RAC decomposition · Foster **Pc** (exact encounter-plane integral) · TLE-age-weighted uncertainty · tiered risk · canonical CSV + JSON reports · `sdebris` CLI |
 | **3 — Interface** | Next.js operator console · Cesium 3D orbital picture · live activity stream · typed command surface · guided tour and docs |
 | **4 — Automation** | GitHub Actions cron screening · email/webhook alerts with cooldown · MkDocs site · CI/CD |
 
@@ -111,7 +111,7 @@ Report: data/reports/screening_25544_<ts>.csv
 
 ```
 CelesTrak → SQLite cache → SGP4 propagation → coarse screen
-  → TCA refinement → RAC geometry → Pc (Chan) → risk tiers
+  → TCA refinement → RAC geometry → Pc (Foster) → risk tiers
   → CSV/JSON report · 3D viz · email/webhook alerts
 ```
 
@@ -134,7 +134,7 @@ src/sdebris/
   ingest/            # CelesTrak client + SQLite cache
   propagation/       # vectorised SGP4 -> Ephemeris
   screening/         # screen.py, tca.py, frames.py
-  risk/              # pc.py (Chan), classify.py
+  risk/              # pc.py (Foster, Chan), classify.py
   reports/           # CSV + JSON writer
   alerts/            # email + webhook dispatch
   ontology/          # typed objects, versioned data, actions, audit + lineage
@@ -187,5 +187,5 @@ MIT — see [LICENSE](LICENSE).
 
 - TLE data: [CelesTrak](https://celestrak.org)
 - Propagation: the [`sgp4`](https://pypi.org/project/sgp4/) library
-- Pc method: Chan, *Spacecraft Collision Probability*, in the encounter-plane
-  formulation of Foster (1992)
+- Pc method: the encounter-plane integral of Foster (1992); Chan's series
+  (*Spacecraft Collision Probability*) is kept as an alternative

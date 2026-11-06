@@ -15,7 +15,7 @@
    screening/screen.py  ──┬─ coarse distance filter
                           ├─ screening/tca.py     (range-rate bisection → TCA)
                           ├─ screening/frames.py  (RAC decomposition)
-                          ├─ risk/pc.py           (Chan Pc in the encounter plane)
+                          ├─ risk/pc.py           (Foster Pc in the encounter plane)
                           └─ risk/classify.py     (tiered risk)
                                           │  ScreeningResult (events + metadata)
                           ┌───────────────┼────────────────┐

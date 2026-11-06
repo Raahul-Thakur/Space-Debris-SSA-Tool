@@ -336,7 +336,7 @@ METHODOLOGY: dict[str, object] = {
     "orbit_source": "Public two-line element sets (TLE)",
     "propagator": "SGP4 in the TEME frame",
     "covariance": "Synthetic age-weighted RIC covariance",
-    "probability_model": "Illustrative Foster/Chan-style estimate",
+    "probability_model": "Illustrative Foster encounter-plane estimate over a synthetic covariance",
     "limitations": [
         "No authoritative covariance messages are ingested",
         "TLE accuracy degrades with age and maneuver activity",
