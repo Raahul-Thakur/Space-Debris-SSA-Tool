@@ -12,13 +12,19 @@ RUN apt-get update && apt-get install -y --no-install-recommends postgresql-clie
     && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app
+# Exact, hash-checked versions from the lockfile, installed before the source
+# is copied so the layer is reused until a dependency changes. Unpinned
+# installs took whatever was newest on the day: that is how pandas 3 arrived
+# and put every time of closest approach in 1970.
+COPY requirements-lock.txt ./
+RUN pip install --require-hashes -r requirements-lock.txt
 COPY pyproject.toml README.md ./
 COPY src ./src
 COPY configs ./configs
 COPY migrations ./migrations
 COPY alembic.ini ./
 COPY scripts ./scripts
-RUN pip install ".[api]"
+RUN pip install --no-deps .
 
 RUN useradd --create-home --uid 10001 appuser && chown -R appuser:appuser /app
 USER appuser

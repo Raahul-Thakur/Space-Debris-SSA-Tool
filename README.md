@@ -161,6 +161,22 @@ Contributions and methodology feedback are welcome. Read
 [CONTRIBUTING.md](CONTRIBUTING.md) before opening a pull request, and report exploitable
 issues through the private process in [SECURITY.md](SECURITY.md).
 
+### Updating dependencies
+
+Deployments install the exact versions in `requirements-lock.txt`, with
+hashes, so a new release upstream cannot change production on its own. To
+change a dependency, edit `pyproject.toml`, then regenerate the lockfile:
+
+```bash
+pip install "uv>=0.11,<0.12"
+uv pip compile pyproject.toml --extra api --universal --python-version 3.10 \
+  --generate-hashes --no-header -o requirements-lock.txt
+```
+
+CI fails if the lockfile does not match `pyproject.toml`, and audits it for
+known vulnerabilities. Dependabot opens one grouped update a week for Python,
+the website, GitHub Actions and the Docker base image.
+
 ## License
 
 MIT — see [LICENSE](LICENSE).

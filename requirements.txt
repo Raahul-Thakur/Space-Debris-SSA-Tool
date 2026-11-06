@@ -1,5 +1,7 @@
-# Core runtime dependencies (see pyproject.toml for the canonical list).
-# Install the package instead with:  pip install -e ".[api,dev,docs]"
+# Version ranges only, for reference. pyproject.toml is the canonical list,
+# and every deployment (Docker, CI, the scheduled screening) installs the
+# exact, hash-checked versions in requirements-lock.txt instead.
+# For development:  pip install -e ".[api,dev,docs]"
 numpy>=1.24
 scipy>=1.10
 pandas>=2.0
