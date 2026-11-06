@@ -8,6 +8,7 @@ import logging
 import os
 import re
 import secrets
+import threading
 from collections.abc import Iterator, Sequence
 from contextlib import asynccontextmanager
 from datetime import datetime, timedelta, timezone
@@ -159,6 +160,76 @@ def _billing_products() -> Products:
     )
 
 
+class StreamSlots:
+    """Counts open live-update streams, per account and in total."""
+
+    def __init__(self, per_account: int, total: int) -> None:
+        self.per_account = per_account
+        self.total = total
+        self._open: dict[str, int] = {}
+        self._lock = threading.Lock()
+
+    def acquire(self, key: str) -> bool:
+        with self._lock:
+            if sum(self._open.values()) >= self.total:
+                return False
+            if self._open.get(key, 0) >= self.per_account:
+                return False
+            self._open[key] = self._open.get(key, 0) + 1
+            return True
+
+    def release(self, key: str) -> None:
+        with self._lock:
+            remaining = self._open.get(key, 0) - 1
+            if remaining > 0:
+                self._open[key] = remaining
+            else:
+                self._open.pop(key, None)
+
+
+def _too_many_streams() -> HTTPException:
+    return HTTPException(
+        status_code=429,
+        detail="too many live connections are open; close another tab and retry",
+        headers={"Retry-After": "30"},
+    )
+
+
+def _check_job_slots(session: Session, principal: Principal) -> None:
+    """Refuse a job when the account, or the instance, is already busy."""
+    horizon = datetime.now(timezone.utc) - ACTIVE_JOB_HORIZON
+    active = select(func.count(ScreeningJobRecord.id)).where(
+        ScreeningJobRecord.status.in_((JobStatus.QUEUED.value, JobStatus.RUNNING.value)),
+        ScreeningJobRecord.created_at >= horizon,
+    )
+    if principal.role is not OperatorRole.ADMIN:
+        own = session.scalar(active.where(ScreeningJobRecord.actor == principal.actor)) or 0
+        if own >= MAX_ACTIVE_JOBS_PER_ACCOUNT:
+            raise HTTPException(
+                status_code=429,
+                detail=(
+                    "You already have a screening running. Wait for it to finish, "
+                    "or cancel it, before starting another."
+                ),
+            )
+    if (session.scalar(active) or 0) >= MAX_ACTIVE_JOBS:
+        raise HTTPException(
+            status_code=503,
+            detail="The screening queue is full. Try again in a few minutes.",
+            headers={"Retry-After": "120"},
+        )
+
+
+def _screening_admission(principal: Principal, plan: Plan, window_hours: float):
+    """The checks a new screening must pass, run as the job is inserted."""
+
+    def admit(session: Session) -> None:
+        check_screening_allowed(session, principal, plan, window_hours=window_hours)
+        _check_job_slots(session, principal)
+
+    return admit
+
+
 def _site_url() -> str:
     """Where the provider sends a buyer back to.
 
@@ -176,6 +247,24 @@ def _site_url() -> str:
         )
     origins = os.getenv("SDEBRIS_CORS_ORIGINS", "http://localhost:3000").split(",")
     return origins[0].strip().rstrip("/")
+
+#: Screening jobs one account may have queued or running at once. Each holds
+#: a share of a one-CPU instance for minutes, so a second is refused rather
+#: than queued behind the first.
+MAX_ACTIVE_JOBS_PER_ACCOUNT = 1
+#: Jobs queued or running across everyone before new ones are turned away.
+MAX_ACTIVE_JOBS = 4
+#: A job older than this is not counted as active: the longest a job may run
+#: is an hour, so anything older was lost (a restart) rather than working,
+#: and must not hold the account's slot.
+ACTIVE_JOB_HORIZON = timedelta(hours=1, minutes=10)
+#: Live-update streams one account may hold open, and the instance in total.
+#: Each is a poll loop; fifty of them stalled every other request.
+MAX_STREAMS_PER_ACCOUNT = 4
+MAX_STREAMS = 60
+#: A stream ends after this long and the client reconnects with its cursor,
+#: so a forgotten tab cannot hold a slot for ever.
+MAX_STREAM_SECONDS = 30 * 60
 
 #: Seconds between activity-feed reads on an open SSE connection.
 ACTIVITY_POLL_SECONDS = 2.0
@@ -589,6 +678,7 @@ def create_app(database_url: str | None = None) -> FastAPI:
     validate_environment()
     database = Database(database_url)
     jobs = ScreeningJobManager(database.session_factory)
+    streams = StreamSlots(MAX_STREAMS_PER_ACCOUNT, MAX_STREAMS)
     command_limiter = SlidingWindowLimiter()
     anonymous_limiter = SlidingWindowLimiter()
     authenticator = Authenticator()
@@ -622,6 +712,7 @@ def create_app(database_url: str | None = None) -> FastAPI:
     # each other's rows.
     public_cache = PublicCache()
     app.state.public_cache = public_cache
+    app.state.streams = streams
 
     def _public_json(key: str, ttl: int, compute) -> Response:
         """Serve a public payload from cache, and say so in the headers.
@@ -974,11 +1065,13 @@ def create_app(database_url: str | None = None) -> FastAPI:
         require_role(principal, OperatorRole.ANALYST)
         plan = plan_for(session, principal)
         _enforce_command_rate(principal, plan)
-        check_screening_allowed(
-            session, principal, plan, window_hours=payload.window_hours
-        )
         payload = payload.model_copy(update={"actor": principal.actor})
-        return jobs.create(payload)
+        # The manager writes on its own connection; release this one first,
+        # as the command path does, since SQLite allows a single writer.
+        session.commit()
+        return jobs.create(
+            payload, admit=_screening_admission(principal, plan, payload.window_hours)
+        )
 
     def _job_or_404(
         session: Session, job_id: str, principal: Principal, *, write: bool = False
@@ -1036,39 +1129,57 @@ def create_app(database_url: str | None = None) -> FastAPI:
         with database.session_factory() as session:
             _job_or_404(session, job_id, principal)
 
+        def read_progress(after: int) -> tuple[list[dict], bool]:
+            # Synchronous database work, run off the event loop: done inline
+            # it blocked every other request for the length of each query.
+            with database.session_factory() as session:
+                events = list(
+                    session.scalars(
+                        select(ScreeningJobEventRecord)
+                        .where(
+                            ScreeningJobEventRecord.job_id == job_id,
+                            ScreeningJobEventRecord.sequence > after,
+                        )
+                        .order_by(ScreeningJobEventRecord.sequence)
+                    )
+                )
+                job = session.get(ScreeningJobRecord, job_id)
+                terminal = bool(job) and job.status in {
+                    JobStatus.SUCCEEDED.value,
+                    JobStatus.FAILED.value,
+                    JobStatus.CANCELLED.value,
+                }
+                return (
+                    [
+                        ScreeningJobEventView.model_validate(event).model_dump(mode="json")
+                        for event in events
+                    ],
+                    terminal,
+                )
+
+        if not streams.acquire(principal.actor):
+            raise _too_many_streams()
+
         async def event_stream():
             last_sequence = 0
-            while not await request.is_disconnected():
-                with database.session_factory() as session:
-                    events = list(
-                        session.scalars(
-                            select(ScreeningJobEventRecord)
-                            .where(
-                                ScreeningJobEventRecord.job_id == job_id,
-                                ScreeningJobEventRecord.sequence > last_sequence,
-                            )
-                            .order_by(ScreeningJobEventRecord.sequence)
-                        )
-                    )
-                    job = session.get(ScreeningJobRecord, job_id)
-                    for event in events:
-                        last_sequence = event.sequence
-                        data = ScreeningJobEventView.model_validate(event).model_dump(
-                            mode="json"
-                        )
+            opened = asyncio.get_running_loop().time()
+            try:
+                while not await request.is_disconnected():
+                    if asyncio.get_running_loop().time() - opened > MAX_STREAM_SECONDS:
+                        break
+                    events, terminal = await run_in_threadpool(read_progress, last_sequence)
+                    for data in events:
+                        last_sequence = data["sequence"]
                         yield (
-                            f"id: {event.sequence}\nevent: progress\n"
+                            f"id: {data['sequence']}\nevent: progress\n"
                             f"data: {json.dumps(data)}\n\n"
                         )
-                    terminal = job and job.status in {
-                        JobStatus.SUCCEEDED.value,
-                        JobStatus.FAILED.value,
-                        JobStatus.CANCELLED.value,
-                    }
-                if terminal and not events:
-                    break
-                yield ": keep-alive\n\n"
-                await asyncio.sleep(0.75)
+                    if terminal and not events:
+                        break
+                    yield ": keep-alive\n\n"
+                    await asyncio.sleep(0.75)
+            finally:
+                streams.release(principal.actor)
 
         return StreamingResponse(event_stream(), media_type="text/event-stream")
 
@@ -1214,7 +1325,19 @@ def create_app(database_url: str | None = None) -> FastAPI:
             # request's write transaction first: holding both at once
             # self-deadlocks on SQLite, which allows a single writer.
             session.commit()
-            job = jobs.create(job_payload)
+            try:
+                job = jobs.create(
+                    job_payload,
+                    admit=_screening_admission(
+                        principal, tier, float(plan.arguments["window_hours"])
+                    ),
+                )
+            except HTTPException as exc:
+                execution.status = JobStatus.FAILED.value
+                execution.error_message = str(exc.detail)
+                execution.completed_at = datetime.now(timezone.utc)
+                session.commit()
+                raise
             execution.status = JobStatus.QUEUED.value
             execution.job_id = job.id
             execution.result_payload = {"job_id": job.id}
@@ -1607,25 +1730,37 @@ def create_app(database_url: str | None = None) -> FastAPI:
     ):
         cutoff = _activity_cutoff(since)
 
+        def read_activity(after: datetime):
+            # Off the event loop, as for job progress.
+            with database.session_factory() as session:
+                return collect_activity(session, after, limit, principal=principal)
+
+        if not streams.acquire(principal.actor):
+            raise _too_many_streams()
+
         async def event_stream():
             watermark = cutoff
-            while not await request.is_disconnected():
-                with database.session_factory() as session:
-                    items = collect_activity(
-                        session, watermark, limit, principal=principal
-                    )
-                if items:
-                    watermark = max(item.occurred_at for item in items)
-                    for item in items:
+            opened = asyncio.get_running_loop().time()
+            try:
+                while not await request.is_disconnected():
+                    if asyncio.get_running_loop().time() - opened > MAX_STREAM_SECONDS:
+                        # The client reconnects with its cursor and loses nothing.
+                        break
+                    items = await run_in_threadpool(read_activity, watermark)
+                    if items:
+                        watermark = max(item.occurred_at for item in items)
+                        for item in items:
+                            yield (
+                                f"id: {item.id}\nevent: activity\n"
+                                f"data: {json.dumps(item.as_dict())}\n\n"
+                            )
+                    else:
                         yield (
-                            f"id: {item.id}\nevent: activity\n"
-                            f"data: {json.dumps(item.as_dict())}\n\n"
+                            f": heartbeat {datetime.now(timezone.utc).isoformat()}\n\n"
                         )
-                else:
-                    yield (
-                        f": heartbeat {datetime.now(timezone.utc).isoformat()}\n\n"
-                    )
-                await asyncio.sleep(ACTIVITY_POLL_SECONDS)
+                    await asyncio.sleep(ACTIVITY_POLL_SECONDS)
+            finally:
+                streams.release(principal.actor)
 
         return StreamingResponse(
             event_stream(),

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import os
+from collections.abc import Callable
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timezone
 from threading import Lock
@@ -23,6 +24,18 @@ from sdebris.ontology.orm import (
 )
 from sdebris.ontology.schemas import ScreeningJobCreate
 from sdebris.screening import screen_target
+
+#: The most state samples (objects x time steps) one job may propagate.
+#: Propagation holds positions and velocities for every sample, about 48
+#: bytes each plus working copies, so this keeps a job to a few hundred MB
+#: at most on a 512 MB instance: a 110-object debris group over 72 h at
+#: 60 s is about 475,000; the old ceiling, any CelesTrak group, could be
+#: tens of millions.
+MAX_SCREENING_SAMPLES = 3_000_000
+
+
+def screening_samples(objects: int, window_hours: float, step_sec: int) -> int:
+    return objects * (int(window_hours * 3600 // step_sec) + 1)
 
 
 class JobCancelled(RuntimeError):
@@ -51,18 +64,36 @@ class ScreeningJobManager:
             else None
         )
         self._event_lock = Lock()
+        # Serialises "may this job start?" with inserting it, so two requests
+        # cannot both pass a limit that only one of them fits under. The API
+        # runs as a single instance, so an in-process lock is enough.
+        self._admission_lock = Lock()
 
     def shutdown(self) -> None:
         if self.executor:
             self.executor.shutdown(wait=False, cancel_futures=True)
 
-    def create(self, payload: ScreeningJobCreate) -> ScreeningJobRecord:
+    def create(
+        self,
+        payload: ScreeningJobCreate,
+        *,
+        admit: Callable[[Any], None] | None = None,
+    ) -> ScreeningJobRecord:
+        """Queue a screening job.
+
+        ``admit`` is called with this method's session, under the admission
+        lock, immediately before the job is inserted; it raises to refuse.
+        Checking a quota earlier and inserting later let parallel requests
+        each see room for one more run.
+        """
         request_payload = payload.model_dump(mode="json", exclude={"command"})
         command = payload.command or (
             f"screen {payload.norad_id} --window {payload.window_hours:g}h "
             f"--threshold {payload.threshold_km:g}km"
         )
-        with self.session_factory() as session:
+        with self._admission_lock, self.session_factory() as session:
+            if admit is not None:
+                admit(session)
             job = ScreeningJobRecord(
                 actor=payload.actor,
                 command=command,
@@ -191,11 +222,25 @@ class ScreeningJobManager:
                 from sdebris.ingest.cache import TLECache
 
                 cache = TLECache(config.resolve_path(config.ingestion.cache_path))
-            catalog = cache.all()
+            # The requested group only. ``cache.all()`` was every object the
+            # instance had ever cached, so one screening of a large group made
+            # every later screening that large too. Falls back to the whole
+            # cache only when the group was never fetched (offline use).
+            catalog = cache.all(source=request.group) or cache.all()
             target = cache.get(request.norad_id)
             self._ensure_time(deadline)
             if target is None:
                 raise ValueError(f"NORAD {request.norad_id} is not available in the catalog")
+            if all(item.norad_id != target.norad_id for item in catalog):
+                catalog = [*catalog, target]
+            samples = screening_samples(len(catalog), request.window_hours, request.step_sec)
+            if samples > MAX_SCREENING_SAMPLES:
+                raise ValueError(
+                    f"this screening would propagate {len(catalog)} objects over "
+                    f"{request.window_hours:g} h at {request.step_sec} s steps "
+                    f"({samples:,} samples, limit {MAX_SCREENING_SAMPLES:,}); "
+                    "use a shorter window or a longer step"
+                )
             self._progress(
                 job_id,
                 "catalog",

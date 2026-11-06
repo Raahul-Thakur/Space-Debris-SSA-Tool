@@ -65,6 +65,26 @@ def _options(tokens: list[str], allowed: set[str]) -> dict[str, str | bool]:
     return parsed
 
 
+def _check_screen_arguments(arguments: dict[str, Any]) -> None:
+    """Refuse a screen the job would refuse, as a parse error, not a 500.
+
+    ``screen 25544 --step 5s`` used to parse, then fail validation inside the
+    handler and surface as an internal error. The same model the job uses is
+    checked here, so the message names the problem.
+    """
+    from pydantic import ValidationError
+
+    from sdebris.ontology.schemas import ScreeningJobCreate
+
+    try:
+        ScreeningJobCreate(**arguments)
+    except ValidationError as exc:
+        first = exc.errors()[0]
+        field = ".".join(str(part) for part in first.get("loc", ())) or "argument"
+        message = str(first.get("msg", "is invalid")).removeprefix("Value error, ")
+        raise CommandParseError(f"{field}: {message}") from exc
+
+
 def _plan(
     action: str,
     arguments: dict[str, Any],
@@ -116,6 +136,7 @@ def parse_command(raw: str, role: OperatorRole = OperatorRole.OPERATOR) -> Comma
             OperatorRole.ANALYST,
             True,
         )
+        _check_screen_arguments(plan.arguments)
     elif tokens == ["monitor", "seed-known"]:
         plan = _plan("monitor.seed-known", {}, OperatorRole.ANALYST)
     elif tokens[:2] == ["monitor", "add"] and len(tokens) == 3 and tokens[2].isdigit():

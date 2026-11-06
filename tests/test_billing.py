@@ -335,7 +335,10 @@ def test_the_paid_plan_allows_the_long_window(tmp_path, monkeypatch) -> None:
     _run(app, scenario)
 
 
-def test_the_monthly_run_allowance_is_enforced(tmp_path) -> None:
+def test_the_monthly_run_allowance_is_enforced(tmp_path, monkeypatch) -> None:
+    # Runs back to back; the one-job-at-a-time limit is tested on its own.
+    monkeypatch.setattr("sdebris.api.app.MAX_ACTIVE_JOBS_PER_ACCOUNT", 100)
+    monkeypatch.setattr("sdebris.api.app.MAX_ACTIVE_JOBS", 100)
     app = create_app(f"sqlite:///{(tmp_path / 'b9.db').as_posix()}")
     allowance = PLAN_LIMITS[Plan.FREE].screening_runs_per_month
     assert allowance is not None

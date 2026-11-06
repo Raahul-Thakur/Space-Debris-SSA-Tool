@@ -33,7 +33,10 @@ const COMMANDS = [
       ["--window", "Look-ahead span. Accepts hours (72h) or days (3d). Default 72h, max 168h."],
       ["--threshold", "Miss-distance cut-off in km or m. Default 25km."],
       ["--step", "Propagation time step in seconds or minutes. Default 60s, min 10s."],
-      ["--group", "Catalogue group to screen against. Default iridium-33-debris."],
+      [
+        "--group",
+        "Catalogue group to screen against: iridium-33-debris (default), cosmos-2251-debris, cosmos-1408-debris, stations, visual or last-30-days."
+      ],
       ["--cached", "Skip the CelesTrak refresh and reuse the catalogue already on disk."]
     ]
   },

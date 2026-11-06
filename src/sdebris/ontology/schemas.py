@@ -30,6 +30,13 @@ class ScreeningJobCreate(BaseModel):
     norad_id: str = Field(pattern=r"^\d{1,9}$")
     group: str = Field(default="iridium-33-debris", min_length=1, max_length=128)
     window_hours: float = Field(default=72, gt=0, le=168)
+
+    @field_validator("group")
+    @classmethod
+    def _known_group(cls, value: str) -> str:
+        from sdebris.catalog_groups import check_group
+
+        return check_group(value)
     step_sec: int = Field(default=60, ge=10, le=900)
     threshold_km: float = Field(default=25, gt=0, le=1000)
     persist_ontology: bool = True
