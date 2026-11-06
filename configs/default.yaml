@@ -13,11 +13,13 @@ ingestion:
 propagation:
   window_hours: 72                # screening look-ahead window
   step_sec: 60                    # coarse propagation step
-  refine_step_sec: 1              # TCA refinement resolution
+  tca_tolerance_sec: 0.001        # TCA root-find tolerance (exact SGP4 states)
 
 screening:
-  coarse_threshold_km: 50         # objects beyond this at every step are skipped
-  report_threshold_km: 25         # only conjunctions closer than this are reported
+  # A close approach is refined only if a bound on its miss distance (taken
+  # inside each grid interval, not just at the samples) is below this.
+  coarse_threshold_km: 50
+  report_threshold_km: 25         # every refined approach closer than this is reported
 
 risk:
   hard_body_radius_m: 20          # combined hard-body radius for Pc

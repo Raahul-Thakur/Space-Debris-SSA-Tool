@@ -17,12 +17,14 @@ all exposed through a CLI, a Next.js operator console, and a scheduled CI pipeli
 > ⚠️ **Educational / portfolio tool.** TLE-derived collision probability is
 > *illustrative, not operational* — see [methodology](docs/methodology.md).
 >
-> **Known limits.** Screening samples a fixed time grid (60 s by default), so a
-> very fast crossing that falls between two samples can be missed. TCA and miss
-> distance are refined on interpolated states and are accurate to roughly a
-> kilometre. Pc uses Chan's analytic series, which is an approximation when the
-> covariance is strongly elongated. If CelesTrak cannot be reached, a run falls
-> back to cached (or bundled sample) data.
+> **Known limits.** Positions come from TLEs and SGP4, which are typically
+> ~1 km off near epoch and worse as the elements age; TCA and miss distance are
+> refined on exact SGP4 states, so they are only as good as SGP4. TLEs carry no
+> covariance, so Pc uses a synthetic, age-weighted covariance and is
+> illustrative, not operational. Pc integrates a Gaussian over the hard body in
+> the encounter plane, which assumes straight-line relative motion through a
+> short encounter. If CelesTrak cannot be reached, a run falls back to cached
+> (or bundled sample) data.
 
 ---
 

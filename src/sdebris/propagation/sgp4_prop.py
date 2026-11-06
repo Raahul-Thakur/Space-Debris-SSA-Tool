@@ -7,16 +7,18 @@ per-timestep Python loop when screening hundreds of objects.
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import datetime, timezone
 
 import numpy as np
 import pandas as pd
-from sgp4.api import SGP4_ERRORS, Satrec, jday
+from sgp4.api import SGP4_ERRORS, Satrec
 
 from sdebris.models import SpaceObject
 
 _UNIX_EPOCH = pd.Timestamp("1970-01-01", tz="UTC")
+_UNIX_EPOCH_JD = 2440587.5
+_SECONDS_PER_DAY = 86400.0
 
 
 def make_time_grid(
@@ -36,14 +38,47 @@ def make_time_grid(
     return pd.date_range(start=start_ts, periods=periods, freq=f"{step_sec}s")
 
 
+def unix_seconds_to_jd(seconds: np.ndarray | float) -> tuple[np.ndarray, np.ndarray]:
+    """Split UNIX seconds into the (whole-day jd, day-fraction fr) pair SGP4 takes.
+
+    Keeping the day fraction separate preserves sub-millisecond resolution
+    (a single float Julian date only resolves ~40 us at present-day values).
+    """
+    t = np.atleast_1d(np.asarray(seconds, dtype=float))
+    days = np.floor(t / _SECONDS_PER_DAY)
+    return _UNIX_EPOCH_JD + days, (t - days * _SECONDS_PER_DAY) / _SECONDS_PER_DAY
+
+
+def _epoch_seconds(times: pd.DatetimeIndex) -> np.ndarray:
+    # Measured as a duration from the UNIX epoch rather than read off the
+    # raw integers: pandas 2 stores a grid in nanoseconds and pandas 3 in
+    # microseconds, and dividing the integers by a fixed 1e9 under pandas 3
+    # put every time of closest approach in January 1970.
+    return ((times - _UNIX_EPOCH) / pd.Timedelta(seconds=1)).to_numpy(dtype=float)
+
+
 def _jd_fr_arrays(times: pd.DatetimeIndex) -> tuple[np.ndarray, np.ndarray]:
     """Convert a DatetimeIndex to parallel Julian-date (jd, fr) arrays for SGP4."""
-    jd = np.empty(len(times), dtype=float)
-    fr = np.empty(len(times), dtype=float)
-    for i, ts in enumerate(times):
-        seconds = ts.second + ts.microsecond * 1e-6
-        jd[i], fr[i] = jday(ts.year, ts.month, ts.day, ts.hour, ts.minute, seconds)
-    return jd, fr
+    return unix_seconds_to_jd(_epoch_seconds(times))
+
+
+def satrec_for(obj: SpaceObject) -> Satrec:
+    """Build the SGP4 satellite record for ``obj``."""
+    return Satrec.twoline2rv(obj.line1, obj.line2)
+
+
+def propagate_at(
+    sat: Satrec, epoch_seconds: np.ndarray | float
+) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+    """Propagate one object to arbitrary UNIX times (not tied to a grid).
+
+    Returns ``(positions (n, 3) km, velocities (n, 3) km/s, ok (n,) bool)`` in
+    TEME. Used to refine each close approach on exact SGP4 states rather than
+    on states interpolated between grid samples.
+    """
+    jd, fr = unix_seconds_to_jd(epoch_seconds)
+    err, r, v = sat.sgp4_array(jd, fr)
+    return np.asarray(r), np.asarray(v), np.asarray(err) == 0
 
 
 @dataclass
@@ -61,14 +96,13 @@ class Ephemeris:
     positions: np.ndarray
     velocities: np.ndarray
     valid: np.ndarray
+    #: The SGP4 records the states came from, one per object, so callers can
+    #: propagate the same objects to times off the grid (TCA refinement).
+    satrecs: list[Satrec] | None = field(default=None, repr=False)
 
     @property
     def epoch_seconds(self) -> np.ndarray:
-        # Measured as a duration from the UNIX epoch rather than read off the
-        # raw integers: pandas 2 stores a grid in nanoseconds and pandas 3 in
-        # microseconds, and dividing the integers by a fixed 1e9 under pandas 3
-        # put every time of closest approach in January 1970.
-        return ((self.times - _UNIX_EPOCH) / pd.Timedelta(seconds=1)).to_numpy(dtype=float)
+        return _epoch_seconds(self.times)
 
     def index_of(self, norad_id: str) -> int:
         return self.norad_ids.index(str(norad_id))
@@ -110,9 +144,11 @@ def propagate_objects(
     positions = np.full((n_obj, n_t, 3), np.nan)
     velocities = np.full((n_obj, n_t, 3), np.nan)
     valid = np.zeros((n_obj, n_t), dtype=bool)
+    satrecs: list[Satrec] = []
 
     for i, obj in enumerate(objects):
-        sat = Satrec.twoline2rv(obj.line1, obj.line2)
+        sat = satrec_for(obj)
+        satrecs.append(sat)
         err, r, v = sat.sgp4_array(jd, fr)  # err:(n_t,), r/v:(n_t,3)
         ok = err == 0
         if fail_on_error and not ok.all():
@@ -129,4 +165,5 @@ def propagate_objects(
         positions=positions,
         velocities=velocities,
         valid=valid,
+        satrecs=satrecs,
     )
