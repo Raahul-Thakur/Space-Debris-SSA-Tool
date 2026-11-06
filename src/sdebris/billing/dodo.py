@@ -86,12 +86,21 @@ class DodoClient:
         subject: str,
         offer: str,
         return_url: str,
+        terms_version: str,
+        terms_accepted_at: str,
     ) -> str:
         body: dict = {
             "product_cart": [{"product_id": product_id, "quantity": 1}],
             "return_url": return_url,
-            # Read back from the webhook to bind the grant to this account.
-            "metadata": {"subject": subject, "offer": offer},
+            # Read back from the webhook: the subject binds the grant to this
+            # account, and the terms fields are the record of what the buyer
+            # agreed to, kept by Dodo and in the ledger and the grant here.
+            "metadata": {
+                "subject": subject,
+                "offer": offer,
+                "terms_version": terms_version,
+                "terms_accepted_at": terms_accepted_at,
+            },
         }
         if email:
             body["customer"] = {"email": email}

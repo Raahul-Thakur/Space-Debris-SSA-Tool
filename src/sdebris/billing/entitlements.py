@@ -52,10 +52,17 @@ def active_entitlement(
     email = normalise_email(principal.email)
     candidates: list[EntitlementRecord] = []
     if email:
+        # A grant made from a checkout is bound to the account that started
+        # it. Matching on email as well let one purchase unlock a second
+        # account: whoever owned the address typed at Dodo's checkout. Email
+        # matching is kept only for grants with no account recorded, such as
+        # one granted by hand.
         candidates.extend(
-            session.scalars(
+            record
+            for record in session.scalars(
                 select(EntitlementRecord).where(EntitlementRecord.email == email)
             )
+            if record.subject is None or record.subject == principal.subject
         )
     candidates.extend(
         session.scalars(

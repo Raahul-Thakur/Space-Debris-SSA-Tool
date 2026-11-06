@@ -141,7 +141,9 @@ export default function TermsPage() {
             Pro is sold as a monthly subscription and, while seats remain, as a one-time
             founding purchase. There are 100 founding seats. Starting a founding checkout
             reserves one for an hour; if no seat is left when a founding payment arrives, it
-            is refunded in full. The limits each plan allows are shown on the{" "}
+            is refunded in full. Buying a founding seat while subscribed cancels the
+            monthly subscription, so you are not charged for both. The limits each plan
+            allows are shown on the{" "}
             <Link href="/pricing">pricing page</Link>, which is the definitive statement of
             what you are buying.
           </p>

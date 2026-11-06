@@ -36,6 +36,7 @@ from sdebris.billing import (
     FOUNDING_SEATS,
     PLAN_LIMITS,
     SUBSCRIPTION,
+    TERMS_VERSION,
     BillingUnavailable,
     DodoClient,
     Plan,
@@ -134,7 +135,12 @@ from sdebris.ratelimit import (
     propagation_cost,
     trajectory_samples,
 )
-from sdebris.runtime import configure_logging, request_log_middleware, validate_environment
+from sdebris.runtime import (
+    configure_logging,
+    current_environment,
+    request_log_middleware,
+    validate_environment,
+)
 from sdebris.tenancy import owns, scope
 
 billing_log = logging.getLogger("sdebris.billing")
@@ -154,12 +160,18 @@ def _billing_products() -> Products:
 def _site_url() -> str:
     """Where the provider sends a buyer back to.
 
-    Defaults to the first allowed CORS origin, which is the deployed frontend
-    in every configuration this project documents.
+    Required in production. Falling back to the first CORS origin, as this
+    used to, sent buyers to ``http://localhost:3000`` whenever the origins
+    were unset or listed in another order. In development the first origin is
+    still used, for convenience.
     """
     explicit = os.getenv("SDEBRIS_SITE_URL", "").strip()
     if explicit:
         return explicit.rstrip("/")
+    if current_environment() == "production":
+        raise BillingUnavailable(
+            "checkout is not configured on this deployment (SDEBRIS_SITE_URL is unset)"
+        )
     origins = os.getenv("SDEBRIS_CORS_ORIGINS", "http://localhost:3000").split(",")
     return origins[0].strip().rstrip("/")
 
@@ -1237,6 +1249,22 @@ def create_app(database_url: str | None = None) -> FastAPI:
         rows = session.execute(
             statement.order_by(MonitoredObjectRecord.created_at)
         ).all()
+        if principal is not None and principal.role is not OperatorRole.ADMIN:
+            # When Pro lapses the account keeps its watch list, but only as
+            # many objects as the plan allows are tracked: the oldest, in the
+            # order they were added. The rest are paused, not deleted, and
+            # come back if the account upgrades again.
+            allowed = limits_for(plan_for(session, principal)).monitored_objects
+            if allowed is not None:
+                own = 0
+                kept = []
+                for monitor, obj in rows:
+                    if monitor.added_by == principal.actor:
+                        own += 1
+                        if own > allowed:
+                            continue
+                    kept.append((monitor, obj))
+                rows = kept
         return [
             {
                 "id": monitor.id,
@@ -1719,6 +1747,8 @@ def create_app(database_url: str | None = None) -> FastAPI:
                 subject=principal.subject,
                 offer=payload.offer,
                 return_url=f"{_site_url()}/account?checkout=complete",
+                terms_version=TERMS_VERSION,
+                terms_accepted_at=datetime.now(timezone.utc).isoformat(),
             )
         except BillingUnavailable as exc:
             if hold is not None:

@@ -104,6 +104,11 @@ FOUNDING_LIFETIME = Offer(
 #: has changed hands the grant is always honoured.
 FOUNDING_SEATS = 100
 
+#: The version of the Terms a buyer accepts at checkout: the "Last updated"
+#: date on web/app/terms/page.tsx, which a test keeps in step. Recorded with
+#: every purchase so a dispute can show which terms were agreed to, and when.
+TERMS_VERSION = "2026-11-06"
+
 
 def limits_for(plan: Plan) -> PlanLimits:
     return PLAN_LIMITS[plan]

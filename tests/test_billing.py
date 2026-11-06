@@ -1072,3 +1072,183 @@ def test_a_failed_checkout_gives_its_seat_back(tmp_path, monkeypatch) -> None:
         assert (await _founding_checkout(client, app, "next")).status_code == 200
 
     _run(app, scenario)
+
+
+# ------------------------------------------------------------ terms of sale
+def test_checkout_records_which_terms_were_accepted_and_when(tmp_path, monkeypatch) -> None:
+    from sdebris.billing import TERMS_VERSION
+
+    _sell(monkeypatch)
+    calls = _fake_provider(monkeypatch)
+    app = create_app(f"sqlite:///{(tmp_path / 't1.db').as_posix()}")
+
+    async def scenario(client: httpx.AsyncClient) -> None:
+        client.headers["Authorization"] = f"Bearer {_token(app)}"
+        response = await client.post(
+            "/billing/checkout", json={"offer": "pro-monthly", "accepted_terms": True}
+        )
+        assert response.status_code == 200, response.text
+
+    _run(app, scenario)
+    metadata = calls[0]["json"]["metadata"]
+    assert metadata["terms_version"] == TERMS_VERSION
+    accepted = datetime.fromisoformat(metadata["terms_accepted_at"])
+    assert abs(datetime.now(timezone.utc) - accepted) < timedelta(minutes=1)
+
+
+def test_the_grant_keeps_the_terms_the_buyer_accepted(tmp_path, monkeypatch) -> None:
+    from sdebris.ontology.database import Database
+    from sdebris.ontology.orm import EntitlementRecord
+
+    _sell(monkeypatch)
+    url = f"sqlite:///{(tmp_path / 't2.db').as_posix()}"
+    app = create_app(url)
+
+    async def scenario(client: httpx.AsyncClient) -> None:
+        paid = _payment(
+            "pay_terms",
+            metadata={"subject": BUYER_SUBJECT, "terms_version": "2026-11-06",
+                      "terms_accepted_at": "2026-11-06T10:00:00+00:00"},
+        )
+        assert (await _deliver(client, paid, "evt_terms")).status_code == 200
+
+    _run(app, scenario)
+    database = Database(url)
+    with database.session_factory() as session:
+        record = session.query(EntitlementRecord).filter_by(external_ref="pay_terms").one()
+        assert record.metadata_json["terms_version"] == "2026-11-06"
+        assert record.metadata_json["terms_accepted_at"] == "2026-11-06T10:00:00+00:00"
+
+
+def test_the_recorded_terms_version_matches_the_terms_page() -> None:
+    """TERMS_VERSION is the page's 'Last updated' date; changing one means changing both."""
+    import re
+    from pathlib import Path
+
+    from sdebris.billing import TERMS_VERSION
+
+    page = Path(__file__).parents[1] / "web" / "app" / "terms" / "page.tsx"
+    updated = re.search(r'const UPDATED = "([^"]+)"', page.read_text()).group(1)
+    parsed = datetime.strptime(updated, "%d %B %Y").replace(tzinfo=timezone.utc)
+    assert parsed.date().isoformat() == TERMS_VERSION
+
+
+# ------------------------------------------- founding seat for a subscriber
+def test_buying_a_founding_seat_cancels_the_monthly_plan(tmp_path, monkeypatch) -> None:
+    """A subscriber upgrading to lifetime used to keep paying $6 a month."""
+    _sell(monkeypatch)
+    calls = _fake_provider(monkeypatch)
+    app = create_app(f"sqlite:///{(tmp_path / 'f1.db').as_posix()}")
+    renewal = datetime.now(timezone.utc) + timedelta(days=30)
+
+    async def scenario(client: httpx.AsyncClient) -> None:
+        active = _subscription(
+            "subscription.active", "sub_up", next_billing_date=renewal.isoformat(),
+            metadata={"subject": BUYER_SUBJECT},
+        )
+        await _deliver(client, active, "evt_up_a")
+        founding = _payment("pay_up", metadata={"subject": BUYER_SUBJECT})
+        response = await _deliver(client, founding, "evt_up_f")
+        assert response.json()["outcome"] == "granted-lifetime-replaced-subscription"
+        plan = await _plan(client, app)
+        assert plan["plan"] == "pro"
+        assert plan["expires_at"] is None, "the lifetime grant should now be the one in force"
+
+    _run(app, scenario)
+    cancels = [call for call in calls if call["method"] == "patch"]
+    assert [call["url"] for call in cancels] == [
+        "https://test.dodopayments.com/subscriptions/sub_up"
+    ]
+
+
+def test_a_founding_seat_alone_cancels_nothing(tmp_path, monkeypatch) -> None:
+    _sell(monkeypatch)
+    calls = _fake_provider(monkeypatch)
+    app = create_app(f"sqlite:///{(tmp_path / 'f2.db').as_posix()}")
+
+    async def scenario(client: httpx.AsyncClient) -> None:
+        founding = _payment("pay_solo", metadata={"subject": BUYER_SUBJECT})
+        assert (await _deliver(client, founding, "evt_solo")).json()["outcome"] == "granted-lifetime"
+
+    _run(app, scenario)
+    assert not [call for call in calls if call["method"] == "patch"]
+
+
+# -------------------------------------------------- one purchase, one account
+def test_a_purchase_unlocks_only_the_account_that_made_it(tmp_path, monkeypatch) -> None:
+    """The email typed at Dodo's checkout used to unlock that address's account too."""
+    _sell(monkeypatch)
+    app = create_app(f"sqlite:///{(tmp_path / 'a1.db').as_posix()}")
+
+    async def scenario(client: httpx.AsyncClient) -> None:
+        paid = _payment(
+            "pay_typed", email="someone-else@localhost", metadata={"subject": BUYER_SUBJECT}
+        )
+        await _deliver(client, paid, "evt_typed")
+        assert (await _plan(client, app))["plan"] == "pro"
+        assert (await _plan(client, app, subject="someone-else"))["plan"] == "free"
+
+    _run(app, scenario)
+
+
+def test_a_grant_made_by_hand_still_matches_by_email(tmp_path) -> None:
+    from sdebris.billing.entitlements import grant
+    from sdebris.ontology.database import Database
+
+    url = f"sqlite:///{(tmp_path / 'a2.db').as_posix()}"
+    database = Database(url)
+    database.initialize()
+    with database.session_factory() as session:
+        grant(session, email=BUYER, plan=Plan.PRO, source="manual", external_ref=None)
+        session.commit()
+    app = create_app(url)
+
+    async def scenario(client: httpx.AsyncClient) -> None:
+        assert (await _plan(client, app))["plan"] == "pro"
+
+    _run(app, scenario)
+
+
+# --------------------------------------------------------- return address
+def test_checkout_needs_a_site_address_in_production(monkeypatch) -> None:
+    """Falling back to the first CORS origin sent buyers to localhost."""
+    from sdebris.api.app import _site_url
+    from sdebris.billing import BillingUnavailable
+
+    monkeypatch.setenv("SDEBRIS_ENV", "production")
+    monkeypatch.delenv("SDEBRIS_SITE_URL", raising=False)
+    monkeypatch.setenv("SDEBRIS_CORS_ORIGINS", "http://localhost:3000,https://astra-ssa.pages.dev")
+    with pytest.raises(BillingUnavailable, match="SDEBRIS_SITE_URL"):
+        _site_url()
+    monkeypatch.setenv("SDEBRIS_SITE_URL", "https://astra-ssa.pages.dev/")
+    assert _site_url() == "https://astra-ssa.pages.dev"
+
+
+# ------------------------------------------------- watch list after a lapse
+def test_objects_over_the_free_limit_are_paused_when_pro_ends(tmp_path) -> None:
+    from sdebris.ontology.database import Database
+    from sdebris.ontology.orm import MonitoredObjectRecord, SpaceObjectRecord
+
+    url = f"sqlite:///{(tmp_path / 'm1.db').as_posix()}"
+    database = Database(url)
+    database.initialize()
+    limit = PLAN_LIMITS[Plan.FREE].monitored_objects
+    with database.session_factory() as session:
+        for index in range(limit + 5):
+            obj = SpaceObjectRecord(norad_id=str(40000 + index), name=f"OBJ {index}")
+            session.add(obj)
+            session.flush()
+            session.add(MonitoredObjectRecord(space_object_id=obj.id, added_by=BUYER))
+            session.commit()
+    app = create_app(url)
+
+    async def scenario(client: httpx.AsyncClient) -> None:
+        client.headers["Authorization"] = f"Bearer {_token(app)}"
+        rows = (await client.get("/monitoring")).json()
+        own = [row for row in rows if row["added_by"] == BUYER]
+        assert len(own) == limit
+        # The oldest are the ones kept.
+        assert own[0]["norad_id"] == "40000"
+        assert "40029" not in {row["norad_id"] for row in own}
+
+    _run(app, scenario)

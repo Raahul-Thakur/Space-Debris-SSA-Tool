@@ -37,7 +37,7 @@ from dataclasses import dataclass
 from datetime import datetime
 from typing import Protocol
 
-from sqlalchemy import select
+from sqlalchemy import or_, select
 from sqlalchemy.orm import Session
 
 from sdebris.billing import seats
@@ -89,8 +89,18 @@ class Products:
         return bool(product_id) and product_id in {self.subscription, self.lifetime}
 
 
+#: Checkout metadata copied onto the grant, as the record of what was agreed.
+TERMS_FIELDS = ("terms_version", "terms_accepted_at")
+
+
 def _grant_metadata(event: BillingEvent, **extra: object) -> dict[str, object]:
     metadata: dict[str, object] = {"event_type": event.event_type, **extra}
+    data = event.payload.get("data")
+    checkout = data.get("metadata") if isinstance(data, dict) else None
+    if isinstance(checkout, dict):
+        for name in TERMS_FIELDS:
+            if checkout.get(name):
+                metadata[name] = str(checkout[name])
     if event.product_id:
         metadata["product_id"] = event.product_id
     if event.customer_id:
@@ -241,7 +251,18 @@ def apply_event(
         )
         if hold is not None:
             seats.release(session, hold)
-        return "granted-lifetime"
+        # A subscriber buying a founding seat to stop paying monthly must
+        # actually stop paying: the subscription is cancelled with Dodo and
+        # its grant retired, since the lifetime grant now covers them.
+        replaced = _subscriptions_of(session, event)
+        for subscription in replaced:
+            actions().cancel_subscription(
+                subscription.external_ref,
+                comment=f"Replaced by founding purchase {event.payment_id}.",
+            )
+            subscription.status = "replaced"
+        session.flush()
+        return "granted-lifetime-replaced-subscription" if replaced else "granted-lifetime"
 
     if kind == SUBSCRIPTION_CANCELLED and event.subscription_id:
         existing = _grant_for(session, event.subscription_id)
@@ -301,6 +322,32 @@ def apply_event(
         return "restored" if record else "restore-no-match"
 
     return "ignored"
+
+
+def _subscriptions_of(session: Session, event: BillingEvent) -> list[EntitlementRecord]:
+    """The buyer's other live subscription grants, by account or by email."""
+    clauses = []
+    if event.subject:
+        clauses.append(EntitlementRecord.subject == event.subject)
+    if event.email:
+        clauses.append(EntitlementRecord.email == event.email.strip().lower())
+    if not clauses:
+        return []
+    candidates = session.scalars(
+        select(EntitlementRecord).where(
+            or_(*clauses),
+            EntitlementRecord.status == "active",
+            EntitlementRecord.expires_at.is_not(None),
+            EntitlementRecord.external_ref.is_not(None),
+            EntitlementRecord.external_ref != event.payment_id,
+        )
+    )
+    # An email match counts only if the grant is not bound to another account.
+    return [
+        record
+        for record in candidates
+        if record.subject is None or not event.subject or record.subject == event.subject
+    ]
 
 
 def _no_match(kind: str, reference: str) -> str:
