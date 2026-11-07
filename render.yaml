@@ -44,6 +44,11 @@ services:
       # Without it the pricing page shows offers but checkout returns 503.
       - key: SDEBRIS_DODO_API_KEY
         sync: false
+      # Paid plans are closed during the beta: checkout refuses, and the pricing
+      # page shows Pro as coming soon with a waitlist. Set to "true" to open
+      # sales once the Dodo go-live checklist is done.
+      - key: SDEBRIS_BILLING_OPEN
+        value: "false"
       # "test" until a real purchase has been run end to end, then "live".
       - key: SDEBRIS_DODO_ENVIRONMENT
         value: test

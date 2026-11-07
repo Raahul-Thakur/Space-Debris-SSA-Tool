@@ -17,12 +17,13 @@ export const metadata: Metadata = {
  * the identity provider returned and, for buyers, what the billing webhook keeps
  * after `ledger_payload` strips card and address details.
  */
-const UPDATED = "6 November 2026";
+const UPDATED = "7 November 2026";
 
 const SECTIONS = [
   { id: "summary", label: "The short version" },
   { id: "reading", label: "Reading without an account" },
   { id: "account", label: "If you sign in" },
+  { id: "waitlist", label: "If you join the waitlist" },
   { id: "paying", label: "If you buy Pro" },
   { id: "browser", label: "What is stored in your browser" },
   { id: "not", label: "What this site does not do" },
@@ -126,8 +127,26 @@ export default function PrivacyPage() {
           </p>
         </section>
 
+        <section id="waitlist">
+          <h2>If you join the waitlist</h2>
+          <p>
+            The waitlist on the pricing page stores the email address you give, which plan
+            you said interests you, the note if you wrote one, the time, and your account if
+            you were signed in. It is used for one thing: an email when paid plans open. It
+            is not shared, and it is not used for anything else.
+          </p>
+          <p>
+            To be removed, email <a href={`mailto:${CONTACT_EMAIL}`}>{CONTACT_EMAIL}</a> and
+            the entry is deleted.
+          </p>
+        </section>
+
         <section id="paying">
           <h2>If you buy Pro</h2>
+          <p>
+            Pro is not on sale during the public beta, so nothing in this section applies
+            yet. It describes what will happen once paid plans open.
+          </p>
           <p>
             Payment happens on a checkout page run by Dodo Payments, the merchant of record.
             Your card number never reaches this site. Dodo collects what it needs to take

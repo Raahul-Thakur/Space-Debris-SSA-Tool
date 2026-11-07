@@ -21,6 +21,7 @@ from sdebris.billing.plans import (
     PlanLimits,
     limits_for,
     parse_plan,
+    sales_open,
 )
 from sdebris.billing.quota import (
     Usage,
@@ -65,6 +66,7 @@ __all__ = [
     "parse_plan",
     "plan_for",
     "revoke",
+    "sales_open",
     "subscription_expiry",
     "usage_for",
     "verify_signature",

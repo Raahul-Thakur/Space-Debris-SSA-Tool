@@ -11,6 +11,7 @@ do; plans gate *how much*.
 
 from __future__ import annotations
 
+import os
 from dataclasses import dataclass
 from enum import Enum
 
@@ -104,10 +105,22 @@ FOUNDING_LIFETIME = Offer(
 #: has changed hands the grant is always honoured.
 FOUNDING_SEATS = 100
 
+def sales_open() -> bool:
+    """Whether paid plans can be bought.
+
+    Off unless ``SDEBRIS_BILLING_OPEN`` is set to true: the platform is free
+    during its beta, so checkout refuses, the pricing page shows Pro as coming
+    soon with a waitlist, and quota messages point there instead of at a
+    purchase. Everything else in billing (plans, grants, webhooks) keeps
+    working, so turning sales on is one setting.
+    """
+    return os.getenv("SDEBRIS_BILLING_OPEN", "").strip().lower() in {"1", "true", "yes"}
+
+
 #: The version of the Terms a buyer accepts at checkout: the "Last updated"
 #: date on web/app/terms/page.tsx, which a test keeps in step. Recorded with
 #: every purchase so a dispute can show which terms were agreed to, and when.
-TERMS_VERSION = "2026-11-06"
+TERMS_VERSION = "2026-11-07"
 
 
 def limits_for(plan: Plan) -> PlanLimits:

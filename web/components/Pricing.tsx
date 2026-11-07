@@ -8,6 +8,7 @@ import { api } from "@/lib/api";
 import { initializeAuth } from "@/lib/auth";
 import { rememberReturnTo } from "@/lib/returnTo";
 import SiteFooter from "@/components/SiteFooter";
+import Waitlist from "@/components/Waitlist";
 
 type Offer = {
   code: string;
@@ -28,7 +29,13 @@ type PlanRow = {
   commands_per_minute: number;
 };
 
-type Plans = { current_plan: string; offers: Offer[]; plans: PlanRow[] };
+type Plans = {
+  current_plan: string;
+  /** False during the beta: nothing is for sale, and the waitlist is shown. */
+  sales_open?: boolean;
+  offers: Offer[];
+  plans: PlanRow[];
+};
 
 function figure(value: number | null, unit: string) {
   return value === null ? "Unlimited" : `${value}${unit}`;
@@ -38,6 +45,10 @@ function figure(value: number | null, unit: string) {
  * The page a quota refusal points at, so it has to answer "what would I get"
  * before "what does it cost". The price is shown to anyone; an account is
  * asked for only at the moment of buying.
+ *
+ * During the beta nothing is on sale: the page says everything is free, shows
+ * what Pro will add, and offers a waitlist. It shows that view unless the API
+ * says sales are open, so a sleeping API never brings back a buy button.
  */
 export default function Pricing() {
   const router = useRouter();
@@ -47,6 +58,7 @@ export default function Pricing() {
   const [busy, setBusy] = useState<string | null>(null);
   const [error, setError] = useState("");
   const [unreachable, setUnreachable] = useState(false);
+  const [email, setEmail] = useState("");
 
   useEffect(() => {
     let active = true;
@@ -55,6 +67,7 @@ export default function Pricing() {
       .then(async (state) => {
         if (!active) return;
         setSignedIn(Boolean(state && (state.development || state.session)));
+        setEmail(state?.session?.user?.email ?? "");
         try {
           const loaded = await api<Plans>("/billing/plans");
           if (active) setPlans(loaded);
@@ -94,6 +107,103 @@ export default function Pricing() {
   const free = plans?.plans.find((row) => row.plan === "free");
   const pro = plans?.plans.find((row) => row.plan === "pro");
   const isPro = plans?.current_plan === "pro";
+  const salesOpen = plans?.sales_open === true;
+
+  if (!salesOpen) {
+    return (
+      <div className="docs-shell pricing-shell">
+        <header className="docs-topbar">
+          <Link href="/" className="brand">
+            <span className="brand-mark">A</span>
+            <span>ASTRA / SSA</span>
+          </Link>
+          <nav>
+            <ThemeToggle />
+            <Link href="/" className="docs-back">
+              OPEN CONSOLE <span aria-hidden="true">-&gt;</span>
+            </Link>
+          </nav>
+        </header>
+
+        <main className="docs-body pricing-body">
+          <p className="eyebrow">PRICING · PUBLIC BETA</p>
+          <h1>Free while Astra is in beta</h1>
+          <p className="docs-lede">
+            Every account gets the full screening pipeline at no cost during the beta. No card,
+            no trial clock, nothing to cancel. Paid plans are coming later, for people who need
+            more room to run it.
+          </p>
+
+          {free && pro && (
+            <table className="docs-table pricing-compare">
+              <thead>
+                <tr>
+                  <th />
+                  <th>Beta · free now</th>
+                  <th>Pro · coming soon</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td>Screening runs</td>
+                  <td>{figure(free.screening_runs_per_month, " / month")}</td>
+                  <td>{figure(pro.screening_runs_per_month, " / month")}</td>
+                </tr>
+                <tr>
+                  <td>Longest window</td>
+                  <td>{figure(free.max_window_hours, " h")}</td>
+                  <td>{figure(pro.max_window_hours, " h")}</td>
+                </tr>
+                <tr>
+                  <td>Watch list</td>
+                  <td>{figure(free.monitored_objects, " objects")}</td>
+                  <td>{figure(pro.monitored_objects, " objects")}</td>
+                </tr>
+                <tr>
+                  <td>Command rate</td>
+                  <td>{free.commands_per_minute} / min</td>
+                  <td>{pro.commands_per_minute} / min</td>
+                </tr>
+              </tbody>
+            </table>
+          )}
+
+          <section className="pricing-soon" aria-labelledby="pro-soon">
+            <p className="eyebrow">PRO · COMING SOON</p>
+            <h2 id="pro-soon">What Pro will add</h2>
+            <ul className="docs-list">
+              <li>
+                <strong>Far more screening:</strong>{" "}
+                {pro ? figure(pro.screening_runs_per_month, " runs a month") : "many more runs a month"}
+                {free ? `, against ${figure(free.screening_runs_per_month, "")} in the beta` : ""}.
+              </li>
+              <li>
+                <strong>A week of look-ahead:</strong> screening windows up to{" "}
+                {pro?.max_window_hours ? `${pro.max_window_hours / 24} days` : "a week"}, so a close
+                approach shows up days earlier.
+              </li>
+              <li>
+                <strong>A bigger watch list:</strong> track up to{" "}
+                {pro ? figure(pro.monitored_objects, " objects") : "hundreds of objects"} at once.
+              </li>
+              <li>
+                <strong>A founding offer:</strong> a limited number of early supporters will be
+                offered Pro for life for a one-time payment. The waitlist hears about it first.
+              </li>
+            </ul>
+            <p>
+              The science is the same on every plan: Pro lifts the limits, it does not change
+              the numbers. Prices will be announced before anything goes on sale.
+            </p>
+          </section>
+
+          <Waitlist initialEmail={email} />
+
+          <SiteFooter />
+        </main>
+      </div>
+    );
+  }
 
   return (
     <div className="docs-shell pricing-shell">

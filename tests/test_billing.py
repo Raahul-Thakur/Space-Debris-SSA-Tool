@@ -17,6 +17,16 @@ from sdebris.billing import Plan, WebhookError, verify_signature
 from sdebris.billing.plans import FOUNDING_SEATS, PLAN_LIMITS
 from sdebris.ontology.enums import OperatorRole
 
+
+@pytest.fixture(autouse=True)
+def _sales_open(monkeypatch):
+    """These tests cover the purchase flow, which is switched off in the beta.
+
+    Sales being closed is tested in test_beta_sales.py.
+    """
+    monkeypatch.setenv("SDEBRIS_BILLING_OPEN", "true")
+
+
 SECRET = "whsec_" + base64.b64encode(b"a-test-signing-secret").decode()
 #: The development token derives the email claim as ``{subject}@localhost``,
 #: so the grant has to be made against that address for the match to work.

@@ -559,6 +559,26 @@ class BillingEventRecord(Base):
     )
 
 
+class WaitlistEntryRecord(Base):
+    """Someone who asked to hear when paid plans open.
+
+    Kept to what that needs: the address, the account if they were signed in,
+    an optional note, and when. Used for nothing else; see the privacy page.
+    """
+
+    __tablename__ = "waitlist_entries"
+    __table_args__ = (UniqueConstraint("email", name="uq_waitlist_email"),)
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=new_id)
+    email: Mapped[str] = mapped_column(String(255), nullable=False)
+    subject: Mapped[str | None] = mapped_column(String(255))
+    interest: Mapped[str | None] = mapped_column(String(32))
+    note: Mapped[str | None] = mapped_column(String(500))
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=utcnow, nullable=False
+    )
+
+
 class FoundingSeatHoldRecord(Base):
     """A founding seat reserved while its buyer is at checkout.
 

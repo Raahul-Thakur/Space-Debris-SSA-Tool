@@ -22,6 +22,8 @@ type Billing = {
   expires_at: string | null;
   manageable: boolean;
   cancelled: boolean;
+  /** False during the beta, when Pro is coming soon rather than on sale. */
+  sales_open?: boolean;
 };
 
 /** How long to wait for the payment webhook after returning from checkout. */
@@ -237,8 +239,9 @@ export default function AccountPanel() {
             </p>
           ) : (
             <p className="account-note">
-              Pro raises every limit above: more runs, longer windows and a bigger
-              watch list.
+              {billing.sales_open
+                ? "Pro raises every limit above: more runs, longer windows and a bigger watch list."
+                : "Everything is free during the beta. Pro, with higher limits on all of the above, is coming soon."}
             </p>
           )}
           <div className="account-actions">
@@ -250,7 +253,7 @@ export default function AccountPanel() {
               )
             ) : (
               <button type="button" className="primary" onClick={() => router.push("/pricing")}>
-                SEE PRO →
+                {billing.sales_open ? "SEE PRO →" : "PRO: JOIN THE WAITLIST →"}
               </button>
             )}
           </div>

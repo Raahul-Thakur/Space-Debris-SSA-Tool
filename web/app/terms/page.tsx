@@ -15,7 +15,7 @@ export const metadata: Metadata = {
  * with a synthetic covariance model, and nobody should be able to read a
  * purchase as buying an operational collision-avoidance service.
  */
-const UPDATED = "6 November 2026";
+const UPDATED = "7 November 2026";
 
 const SECTIONS = [
   { id: "summary", label: "The short version" },
@@ -137,6 +137,11 @@ export default function TermsPage() {
 
         <section id="paid">
           <h2>Pro plan and payment</h2>
+          <p>
+            During the public beta the service is free and Pro is not on sale. Nothing can
+            be bought, and no payment details are asked for. The rest of this section
+            applies once paid plans open; those who joined the waitlist will be told first.
+          </p>
           <p>
             Pro is sold as a monthly subscription and, while seats remain, as a one-time
             founding purchase. There are 100 founding seats. Starting a founding checkout

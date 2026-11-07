@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from datetime import datetime
-from typing import Any
+from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
@@ -80,6 +80,29 @@ class CommandRequest(BaseModel):
 
     command: str = Field(min_length=1, max_length=2048)
     confirmed: bool = False
+
+
+class WaitlistJoin(BaseModel):
+    """A request to hear when paid plans open."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    email: str = Field(min_length=3, max_length=254)
+    #: Which paid offer interests them, if they said.
+    interest: Literal["pro-monthly", "founding", "either"] | None = None
+    note: str | None = Field(default=None, max_length=500)
+    #: Left empty by people and filled in by form-filling bots, which see an
+    #: ordinary field. A filled one is accepted and discarded.
+    website: str | None = Field(default=None, max_length=200)
+
+    @field_validator("email")
+    @classmethod
+    def _plausible_email(cls, value: str) -> str:
+        email = value.strip().lower()
+        local, _, domain = email.partition("@")
+        if not local or "." not in domain or " " in email or domain.startswith("."):
+            raise ValueError("enter a valid email address")
+        return email
 
 
 class CheckoutRequest(BaseModel):

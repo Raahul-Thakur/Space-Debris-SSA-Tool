@@ -61,7 +61,14 @@ def usage_for(session: Session, principal: Principal, now: datetime | None = Non
 
 
 def _exceeded(message: str, plan: Plan) -> HTTPException:
-    upgrade = "" if plan is Plan.PRO else " Upgrade to Pro for a higher limit."
+    from sdebris.billing.plans import sales_open
+
+    if plan is Plan.PRO:
+        upgrade = ""
+    elif sales_open():
+        upgrade = " Upgrade to Pro for a higher limit."
+    else:
+        upgrade = " Pro, with higher limits, is coming soon: join the waitlist on the pricing page."
     return HTTPException(status_code=QUOTA_STATUS, detail=f"{message}{upgrade}")
 
 

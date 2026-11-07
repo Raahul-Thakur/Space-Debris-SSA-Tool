@@ -13,7 +13,7 @@ export const metadata: Metadata = {
  * chargeback costs a fee and counts against the merchant account. A clear
  * no-argument window is the cheaper policy as well as the fairer one.
  */
-const UPDATED = "6 November 2026";
+const UPDATED = "7 November 2026";
 const WINDOW_DAYS = 14;
 
 export default function RefundsPage() {
@@ -35,6 +35,11 @@ export default function RefundsPage() {
         <p className="eyebrow">REFUNDS</p>
         <h1>Refund policy</h1>
         <p>Last updated {UPDATED}.</p>
+
+        <p className="account-notice">
+          Astra is free during its public beta and nothing is on sale, so there is nothing to
+          refund yet. This policy will apply once paid plans open.
+        </p>
 
         <section>
           <h2>Within {WINDOW_DAYS} days, no questions</h2>

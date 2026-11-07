@@ -1102,7 +1102,7 @@ export default function CommandCenter() {
             {error}
             {quotaHit && (
               <Link className="upgrade-link" href="/pricing">
-                SEE PRO →
+                SEE PLANS →
               </Link>
             )}
           </p>

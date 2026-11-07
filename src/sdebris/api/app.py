@@ -19,6 +19,7 @@ from fastapi import Depends, FastAPI, HTTPException, Query, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse, Response, StreamingResponse
 from sqlalchemy import func, select, text
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 from starlette.concurrency import run_in_threadpool
 
@@ -52,6 +53,7 @@ from sdebris.billing import (
     limits_for,
     parse_event,
     plan_for,
+    sales_open,
     usage_for,
     verify_signature,
 )
@@ -87,6 +89,7 @@ from sdebris.ontology.orm import (
     ScreeningJobRecord,
     ScreeningRunRecord,
     SpaceObjectRecord,
+    WaitlistEntryRecord,
 )
 from sdebris.ontology.schemas import (
     AcknowledgeAlertRequest,
@@ -125,6 +128,7 @@ from sdebris.ontology.schemas import (
     SpaceObjectView,
     TrajectoryPoint,
     TrajectoryResponse,
+    WaitlistJoin,
 )
 from sdebris.propagation import make_time_grid, propagate_objects
 from sdebris.ratelimit import (
@@ -266,6 +270,11 @@ MAX_STREAMS = 60
 #: A stream ends after this long and the client reconnects with its cursor,
 #: so a forgotten tab cannot hold a slot for ever.
 MAX_STREAM_SECONDS = 30 * 60
+
+#: Waitlist sign-ups accepted from one address per ten minutes: plenty for a
+#: person correcting a typo, useless for a script filling the list.
+WAITLIST_JOINS_PER_WINDOW = 3
+WAITLIST_WINDOW_SECONDS = 600.0
 
 #: Seconds between activity-feed reads on an open SSE connection.
 ACTIVITY_POLL_SECONDS = 2.0
@@ -683,6 +692,7 @@ def create_app(database_url: str | None = None) -> FastAPI:
     streams = StreamSlots(MAX_STREAMS_PER_ACCOUNT, MAX_STREAMS)
     command_limiter = SlidingWindowLimiter()
     anonymous_limiter = SlidingWindowLimiter()
+    waitlist_limiter = SlidingWindowLimiter(window_seconds=WAITLIST_WINDOW_SECONDS)
     authenticator = Authenticator()
     # Shared secret proving a request came from the caching edge in front of
     # this service rather than from a browser. Unset by default, in which
@@ -1785,6 +1795,7 @@ def create_app(database_url: str | None = None) -> FastAPI:
         usage = usage_for(session, principal)
         entitlement = active_entitlement(session, principal)
         return {
+            "sales_open": sales_open(),
             "plan": tier.value,
             "plan_label": tier.label,
             "limits": {
@@ -1850,9 +1861,13 @@ def create_app(database_url: str | None = None) -> FastAPI:
                 }
             )
         current = plan_for(session, principal) if principal else Plan.FREE
+        is_open = sales_open()
         return {
             "current_plan": current.value,
-            "offers": offers,
+            # During the beta nothing is for sale: the page shows what Pro will
+            # offer and a waitlist instead of offers to buy.
+            "sales_open": is_open,
+            "offers": offers if is_open else [],
             "plans": [
                 {
                     "plan": tier.value,
@@ -1871,6 +1886,14 @@ def create_app(database_url: str | None = None) -> FastAPI:
         payload: CheckoutRequest, session: SessionDep, principal: PrincipalDep
     ) -> dict[str, str]:
         """Start a checkout for an offer and return the provider's page."""
+        if not sales_open():
+            raise HTTPException(
+                status_code=403,
+                detail=(
+                    "Paid plans are not on sale during the beta. Join the waitlist on "
+                    "the pricing page to hear when they open."
+                ),
+            )
         if not payload.accepted_terms:
             raise HTTPException(
                 status_code=400, detail="Accept the terms before continuing to payment."
@@ -1950,6 +1973,72 @@ def create_app(database_url: str | None = None) -> FastAPI:
             raise HTTPException(status_code=503, detail=str(exc)) from exc
         session.commit()
         return {"url": url}
+
+    @app.post("/waitlist", status_code=202)
+    def join_waitlist(
+        payload: WaitlistJoin,
+        request: Request,
+        session: SessionDep,
+        principal: OptionalPrincipalDep,
+    ) -> dict[str, str]:
+        """Ask to hear when paid plans open. No account needed.
+
+        The answer is the same whether the address is new or already listed,
+        so the endpoint cannot be used to find out who has signed up.
+        """
+        key = f"waitlist:{client_address(request)}"
+        if not waitlist_limiter.check(key, WAITLIST_JOINS_PER_WINDOW):
+            raise HTTPException(
+                status_code=429,
+                detail="Too many sign-ups from this address. Try again in a few minutes.",
+                headers={"Retry-After": str(waitlist_limiter.retry_after(key))},
+            )
+        accepted = {"status": "joined"}
+        if payload.website:
+            return accepted
+        existing = session.scalar(
+            select(WaitlistEntryRecord).where(WaitlistEntryRecord.email == payload.email)
+        )
+        if existing is None:
+            session.add(
+                WaitlistEntryRecord(
+                    email=payload.email,
+                    subject=principal.subject if principal else None,
+                    interest=payload.interest,
+                    note=(payload.note or "").strip() or None,
+                )
+            )
+        else:
+            # A second sign-up updates what they told us; it adds no row.
+            existing.interest = payload.interest or existing.interest
+            existing.note = (payload.note or "").strip() or existing.note
+        try:
+            session.commit()
+        except IntegrityError:
+            # Two sign-ups for one address at the same moment: one row wins.
+            session.rollback()
+        return accepted
+
+    @app.get("/waitlist")
+    def list_waitlist(session: SessionDep, principal: PrincipalDep) -> dict[str, object]:
+        """Everyone on the waitlist, for an administrator to export."""
+        require_role(principal, OperatorRole.ADMIN)
+        rows = list(
+            session.scalars(select(WaitlistEntryRecord).order_by(WaitlistEntryRecord.created_at))
+        )
+        return {
+            "count": len(rows),
+            "entries": [
+                {
+                    "email": row.email,
+                    "interest": row.interest,
+                    "note": row.note,
+                    "signed_in": row.subject is not None,
+                    "joined_at": as_utc(row.created_at).isoformat(),
+                }
+                for row in rows
+            ],
+        }
 
     @app.post("/billing/webhook")
     async def billing_webhook(request: Request, session: SessionDep) -> dict[str, str]:

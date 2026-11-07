@@ -2080,3 +2080,56 @@ html[data-tour-step]:not([data-tour-step="samples"]) .suggestions { visibility: 
   .site-footer { grid-template-columns: minmax(0, 1fr); margin-top: 44px; }
   .site-footer .site-footer-contact a { font-size: 24px; }
 }
+
+/* ------------------------------------------------------------- beta pricing
+   Pro is shown as coming soon, with a waitlist in place of offers to buy.
+   Ruled sections like the rest of the docs pages, not cards. */
+.pricing-soon,
+.waitlist {
+  margin-top: 40px;
+  padding-top: 24px;
+  border-top: 2px solid var(--ink);
+}
+.pricing-soon h2,
+.waitlist h2 { margin: 8px 0 12px; }
+.waitlist-form { display: grid; gap: 18px; max-width: 520px; margin-top: 18px; }
+.waitlist-field { display: grid; gap: 6px; }
+.waitlist-field span,
+.waitlist-interest legend {
+  color: var(--ink-faint);
+  font: 500 10px var(--mono);
+  letter-spacing: .16em;
+  text-transform: uppercase;
+}
+.waitlist-field input,
+.waitlist-field textarea {
+  width: 100%;
+  padding: 12px 0;
+  border: 0;
+  border-bottom: 2px solid var(--ink);
+  outline: 0;
+  background: transparent;
+  color: var(--ink);
+  font: 400 16px var(--mono);
+  resize: vertical;
+}
+.waitlist-field input:focus,
+.waitlist-field textarea:focus { border-bottom-color: var(--signal); }
+.waitlist-interest { display: flex; flex-wrap: wrap; gap: 10px 22px; margin: 0; padding: 0; border: 0; }
+.waitlist-interest legend { margin-bottom: 10px; padding: 0; }
+.waitlist-interest label { display: inline-flex; align-items: center; gap: 8px; color: var(--ink); font-size: 14px; }
+.waitlist-interest input { accent-color: var(--signal); }
+.waitlist-form button[type="submit"] {
+  justify-self: start;
+  padding: 13px 20px;
+  border: 1px solid var(--signal);
+  background: var(--signal);
+  color: var(--paper);
+  cursor: pointer;
+  font: 500 11px var(--mono);
+  letter-spacing: .16em;
+}
+.waitlist-form button[type="submit"]:hover:not(:disabled) { background: var(--signal-deep); border-color: var(--signal-deep); }
+.waitlist-form button[type="submit"]:disabled { opacity: .6; cursor: progress; }
+/* Off-screen rather than display:none, which some bots know to skip. */
+.waitlist-trap { position: absolute; left: -10000px; width: 1px; height: 1px; overflow: hidden; }
