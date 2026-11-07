@@ -35,6 +35,12 @@ jobs:
         if: matrix.python-version == '3.12'
         run: |
           pip install "uv>=0.11,<0.12"
+          # Seeded with the committed lockfile, so uv keeps every pin that
+          # still satisfies pyproject.toml. Resolving from scratch would pick
+          # up each new upstream release and fail on commits that changed
+          # no dependency at all. This fails only when pyproject.toml and
+          # the lockfile disagree.
+          cp requirements-lock.txt /tmp/requirements-lock.txt
           uv pip compile pyproject.toml --extra api --universal --python-version 3.10 \
             --generate-hashes --no-header -q -o /tmp/requirements-lock.txt
           if ! diff -q requirements-lock.txt /tmp/requirements-lock.txt; then
