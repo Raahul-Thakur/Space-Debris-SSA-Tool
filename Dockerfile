@@ -1,4 +1,4 @@
-FROM python:3.12-slim
+FROM python:3.15-slim
 
 # SDEBRIS_HOME: the package is installed into site-packages, so it cannot
 # find configs/ or a writable data/ directory relative to itself. /app holds
