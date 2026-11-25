@@ -5,8 +5,9 @@ import { SITE_URL } from "@/lib/site";
 export const dynamic = "force-static";
 
 /**
- * The pages worth finding from a search. Sign-in and the account page are
- * left out on purpose: neither has anything to show a visitor arriving cold.
+ * The pages worth finding from a search. Sign-in, the account page and the
+ * admin page are left out on purpose: none has anything to show a visitor
+ * arriving cold.
  * No lastModified, because the build cannot know when a page's words last
  * changed, and a date that moves on every deploy teaches crawlers to ignore it.
  */
