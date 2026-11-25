@@ -6,7 +6,7 @@ import os
 from collections.abc import Iterator
 from pathlib import Path
 
-from sqlalchemy import Engine, create_engine, event
+from sqlalchemy import Engine, create_engine, event, inspect
 from sqlalchemy.orm import Session, sessionmaker
 
 from sdebris.config import REPO_ROOT, load_config
@@ -99,6 +99,13 @@ class Database:
         self.session_factory = create_session_factory(self.engine)
 
     def initialize(self) -> None:
+        # A database Alembic manages (every deployed one: the start script
+        # migrates first) belongs to the migrations alone. create_all there
+        # would create a table a migration had not, and the next migration
+        # would then fail on it. Fresh local and test databases still get
+        # the schema straight from the models.
+        if inspect(self.engine).has_table("alembic_version"):
+            return
         init_database(self.engine)
 
     def sessions(self) -> Iterator[Session]:

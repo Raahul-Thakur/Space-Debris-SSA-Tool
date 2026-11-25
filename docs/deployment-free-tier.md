@@ -105,7 +105,7 @@ without a JWKS issuer has no way for anyone to sign in.
 Roles are not set by hand. Migration `b7e3c05d19af` installs a Supabase custom
 access token hook, `public.custom_access_token_hook`, which stamps
 `app_metadata.role` into every JWT as it is minted. The mapping lives in the
-`role_grants` table, keyed by email: an exact match wins, and the `*` row
+`role_grants` table, matched by user id, then by email: an exact match wins, and the `*` row
 supplies the default for everyone else.
 
 Enable it once, in the dashboard: **Authentication -> Hooks -> Customize Access
@@ -121,6 +121,19 @@ bought, is one row:
 insert into role_grants (email, role, note)
 values ('person@example.com', 'operator', 'Runs case workflow');
 ```
+
+Once that person has an account, bind the grant to it, so it follows the
+account rather than the address (an email can change, or pass to someone
+else). A bound grant is matched only by user id:
+
+```sql
+update role_grants g set user_id = u.id::text
+from auth.users u
+where g.user_id is null and g.email <> '*' and lower(u.email) = lower(g.email);
+```
+
+Migration `9d4f1b2c7e30` did this for every account that existed when it
+ran, and moved ownership of all work products from email to user id.
 
 Raising the default once the ontology is per-tenant is one update:
 

@@ -1251,14 +1251,14 @@ def test_objects_over_the_free_limit_are_paused_when_pro_ends(tmp_path) -> None:
             obj = SpaceObjectRecord(norad_id=str(40000 + index), name=f"OBJ {index}")
             session.add(obj)
             session.flush()
-            session.add(MonitoredObjectRecord(space_object_id=obj.id, added_by=BUYER))
+            session.add(MonitoredObjectRecord(space_object_id=obj.id, added_by=BUYER_SUBJECT))
             session.commit()
     app = create_app(url)
 
     async def scenario(client: httpx.AsyncClient) -> None:
         client.headers["Authorization"] = f"Bearer {_token(app)}"
         rows = (await client.get("/monitoring")).json()
-        own = [row for row in rows if row["added_by"] == BUYER]
+        own = [row for row in rows if row["added_by"] == BUYER_SUBJECT]
         assert len(own) == limit
         # The oldest are the ones kept.
         assert own[0]["norad_id"] == "40000"

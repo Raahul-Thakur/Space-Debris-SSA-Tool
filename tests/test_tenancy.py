@@ -50,15 +50,15 @@ def test_scoping_an_administrator_leaves_the_query_alone() -> None:
 
 # --------------------------------------------------------------- the ownership
 def test_a_principal_owns_their_own_row() -> None:
-    assert owns("alice@example.com", ALICE)
+    assert owns("alice", ALICE)
 
 
 def test_a_principal_does_not_own_someone_elses_row() -> None:
-    assert not owns("bob@example.com", ALICE)
+    assert not owns("bob", ALICE)
 
 
 def test_an_administrator_owns_every_row() -> None:
-    assert owns("bob@example.com", ROOT)
+    assert owns("bob", ROOT)
 
 
 def test_a_platform_row_is_readable_by_anyone_signed_in() -> None:
@@ -72,7 +72,7 @@ def test_a_platform_row_is_not_writable_by_whoever_finds_it() -> None:
 
 def test_an_anonymous_caller_owns_nothing() -> None:
     assert not owns(None, None)
-    assert not owns("alice@example.com", None)
+    assert not owns("alice", None)
 
 
 # ------------------------------------------------------------- over the wire
@@ -237,7 +237,7 @@ def test_the_cacheable_watch_list_never_includes_an_accounts_own_objects(
         session.flush()
         session.add(MonitoredObjectRecord(space_object_id=public.id, added_by=None))
         session.add(
-            MonitoredObjectRecord(space_object_id=private.id, added_by="alice@localhost")
+            MonitoredObjectRecord(space_object_id=private.id, added_by="alice")
         )
         session.commit()
 
@@ -287,7 +287,7 @@ def test_watching_an_object_does_not_take_it_from_another_principal(
                 space_object_id=object_id
             )
         )
-    assert owners == ["<platform>", "alice@localhost"], owners
+    assert owners == ["<platform>", "alice"], owners
 
 
 # ------------------------------------------------------------ the activity feed
@@ -398,3 +398,13 @@ def test_an_operator_cannot_acknowledge_another_operators_alert(client: TestClie
     alert_id = alert.json()["id"]
     assert client.post(f"/alerts/{alert_id}/acknowledge", headers=bob, json=body).status_code == 404
     assert client.post(f"/alerts/{alert_id}/acknowledge", headers=alice, json=body).status_code == 200
+
+
+def test_ownership_follows_the_user_id_not_the_email() -> None:
+    """An account that changed its email used to lose every row it owned."""
+    renamed = Principal(subject="alice", email="alice@new.example", role=OperatorRole.ANALYST)
+    assert ALICE.actor == renamed.actor == "alice"
+    assert owns(ALICE.actor, renamed)
+    # And an email someone else now holds grants nothing.
+    impostor = Principal(subject="mallory", email="alice@example.com", role=OperatorRole.ANALYST)
+    assert not owns(ALICE.actor, impostor)

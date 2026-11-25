@@ -34,7 +34,13 @@ class Principal:
 
     @property
     def actor(self) -> str:
-        return self.email or self.subject
+        """The id every work product records as its owner: the auth subject.
+
+        It used to be the email, which an account can change: the account then
+        lost every row it owned. The subject (the Supabase user id) never
+        changes. Migration 9d4f1b2c7e30 rewrote existing email owners.
+        """
+        return self.subject
 
 
 class Authenticator:

@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useState } from "react";
 import ThemeToggle from "@/components/ThemeToggle";
 import { api } from "@/lib/api";
+import { goToPayment } from "@/lib/paymentRedirect";
 import { initializeAuth, signOut, signOutEverywhere } from "@/lib/auth";
 import type { Job } from "@/lib/types";
 import SiteFooter from "@/components/SiteFooter";
@@ -130,7 +131,7 @@ export default function AccountPanel() {
     setOpeningPortal(true);
     try {
       const { url } = await api<{ url: string }>("/billing/portal", { method: "POST" });
-      window.location.assign(url);
+      goToPayment(url);
     } catch (caught) {
       setBillingError(caught instanceof Error ? caught.message : "Could not open billing.");
       setOpeningPortal(false);

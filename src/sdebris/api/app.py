@@ -737,6 +737,14 @@ def create_app(database_url: str | None = None) -> FastAPI:
             "for space situational awareness."
         ),
         lifespan=lifespan,
+        # The interactive API docs and the schema behind them map every
+        # route, including the ones only an administrator can call. Useful
+        # locally; in production they are an attacker's index.
+        **(
+            {"docs_url": None, "redoc_url": None, "openapi_url": None}
+            if current_environment() == "production"
+            else {}
+        ),
     )
     app.state.database = database
     app.state.jobs = jobs
@@ -895,7 +903,10 @@ def create_app(database_url: str | None = None) -> FastAPI:
         CORSMiddleware,
         allow_origins=[origin.strip() for origin in allowed_origins if origin.strip()],
         allow_origin_regex=origin_regex,
-        allow_credentials=True,
+        # Tokens travel in the Authorization header, never in cookies, so
+        # credentialed requests are not needed. Allowing them would let any
+        # origin the regex matches make cookie-bearing calls.
+        allow_credentials=False,
         allow_methods=["*"],
         allow_headers=["*"],
     )
@@ -2180,7 +2191,11 @@ def create_app(database_url: str | None = None) -> FastAPI:
     @app.get(
         "/lineage/{entity_type}/{entity_id}", response_model=list[LineageEdgeView]
     )
-    def get_lineage(entity_type: str, entity_id: str, session: SessionDep):
+    def get_lineage(
+        entity_type: str, entity_id: str, session: SessionDep, _principal: PrincipalDep
+    ):
+        # Signed-in only: lineage links work products (runs, cases,
+        # decisions) to each other, which says more than the public picture.
         return OntologyService(session).lineage_for(entity_type, entity_id)
 
     return app

@@ -118,7 +118,7 @@ def test_too_many_streams_for_one_account_are_refused(client: TestClient) -> Non
     headers = _headers(client, "streamer")
     slots: StreamSlots = client.app.state.streams
     for _ in range(MAX_STREAMS_PER_ACCOUNT):
-        assert slots.acquire("streamer@localhost")
+        assert slots.acquire("streamer")
     response = client.get("/stream/activity", headers=headers)
     assert response.status_code == 429
     assert "Retry-After" in response.headers

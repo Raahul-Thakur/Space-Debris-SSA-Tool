@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
 import ThemeToggle from "@/components/ThemeToggle";
 import { api, publicApi } from "@/lib/api";
+import { goToPayment } from "@/lib/paymentRedirect";
 import { initializeAuth } from "@/lib/auth";
 import { rememberReturnTo } from "@/lib/returnTo";
 import SiteFooter from "@/components/SiteFooter";
@@ -103,7 +104,7 @@ export default function Pricing() {
         method: "POST",
         body: JSON.stringify({ offer: offer.code, accepted_terms: true })
       });
-      window.location.assign(checkout_url);
+      goToPayment(checkout_url);
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : "Checkout could not be started.");
       setBusy(null);

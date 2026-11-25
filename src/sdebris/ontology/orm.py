@@ -620,9 +620,14 @@ class RoleGrantRecord(Base):
             "role IN ('viewer', 'analyst', 'operator', 'admin')",
             name="ck_role_grants_known_role",
         ),
+        UniqueConstraint("user_id", name="uq_role_grants_user_id"),
     )
 
     email: Mapped[str] = mapped_column(String(255), primary_key=True)
+    #: The Supabase user id, filled in for accounts that exist. A grant
+    #: matched by id survives the account changing its email; the email
+    #: match remains for granting a role before someone first signs in.
+    user_id: Mapped[str | None] = mapped_column(String(64), nullable=True)
     role: Mapped[str] = mapped_column(String(32), nullable=False)
     note: Mapped[str] = mapped_column(Text, nullable=False, server_default="")
     granted_at: Mapped[datetime] = mapped_column(

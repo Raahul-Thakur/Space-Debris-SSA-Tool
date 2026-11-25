@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import hashlib
+import logging
 import os
 from collections.abc import Callable
 from concurrent.futures import ThreadPoolExecutor
@@ -39,6 +40,9 @@ def screening_samples(objects: int, window_hours: float, step_sec: int) -> int:
     return objects * (int(window_hours * 3600 // step_sec) + 1)
 
 
+logger = logging.getLogger(__name__)
+
+
 class JobCancelled(RuntimeError):
     pass
 
@@ -47,6 +51,23 @@ class JobTimedOut(RuntimeError):
     pass
 
 
+class ScreeningRequestError(ValueError):
+    """A problem with what was asked for, worded for the person who asked.
+
+    Its message is shown to the user. Any other exception's text is internal
+    (a path, a SQL fragment, a library's wording), so it is logged here and
+    the user sees a generic message with a reference instead.
+    """
+
+
+
+
+def _user_facing_error(exc: BaseException, job_id: str) -> str:
+    """What a failed job tells its owner; the full error goes to the log."""
+    if isinstance(exc, (ScreeningRequestError, JobTimedOut)):
+        return str(exc)
+    logger.error("screening job %s failed", job_id, exc_info=exc)
+    return f"The screening failed unexpectedly. Try again; if it keeps failing, quote job {job_id}."
 
 #: Advisory lock keys: one for admitting jobs, and one per job (derived from
 #: its id) for numbering its progress events.
@@ -291,12 +312,14 @@ class ScreeningJobManager:
             target = cache.get(request.norad_id)
             self._ensure_time(deadline)
             if target is None:
-                raise ValueError(f"NORAD {request.norad_id} is not available in the catalog")
+                raise ScreeningRequestError(
+                    f"NORAD {request.norad_id} is not available in the catalog"
+                )
             if all(item.norad_id != target.norad_id for item in catalog):
                 catalog = [*catalog, target]
             samples = screening_samples(len(catalog), request.window_hours, request.step_sec)
             if samples > MAX_SCREENING_SAMPLES:
-                raise ValueError(
+                raise ScreeningRequestError(
                     f"this screening would propagate {len(catalog)} objects over "
                     f"{request.window_hours:g} h at {request.step_sec} s steps "
                     f"({samples:,} samples, limit {MAX_SCREENING_SAMPLES:,}); "
@@ -366,23 +389,24 @@ class ScreeningJobManager:
             # "running" for ever with no message, which is worse than any
             # unexpected exception. The error is persisted for inspection
             # rather than swallowed.
+            reason = _user_facing_error(exc, job_id)
             with self.session_factory() as session:
                 job = session.get(ScreeningJobRecord, job_id)
                 if job is not None:
                     job.status = JobStatus.FAILED.value
                     job.stage = "failed"
                     job.message = "Screening failed"
-                    job.error_message = str(exc)
+                    job.error_message = reason
                     job.completed_at = datetime.now(timezone.utc)
                     self._complete_commands(
                         session,
                         job_id,
                         JobStatus.FAILED,
                         {},
-                        error_message=str(exc),
+                        error_message=reason,
                     )
                     self._append_event(
-                        session, job, "failed", job.progress, "Screening failed", {"error": str(exc)}
+                        session, job, "failed", job.progress, "Screening failed", {"error": reason}
                     )
                     session.commit()
         finally:
