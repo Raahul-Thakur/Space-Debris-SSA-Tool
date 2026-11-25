@@ -47,14 +47,18 @@ def percentile(sorted_values: Sequence[float], fraction: float) -> float | None:
     return sorted_values[min(rank, len(sorted_values)) - 1]
 
 
+def _rounded(value: float | None) -> float | None:
+    return None if value is None else round(value, 2)
+
+
 def _summary(durations: list[float], statuses: Counter[str]) -> dict[str, object]:
     durations.sort()
     count = len(durations)
     return {
         "requests": count,
-        "p50_ms": percentile(durations, 0.50),
-        "p95_ms": percentile(durations, 0.95),
-        "p99_ms": percentile(durations, 0.99),
+        "p50_ms": _rounded(percentile(durations, 0.50)),
+        "p95_ms": _rounded(percentile(durations, 0.95)),
+        "p99_ms": _rounded(percentile(durations, 0.99)),
         # 5xx only: a 4xx is usually the caller's mistake (a bad id, an
         # expired token, a rate limit) and is reported separately.
         "error_rate": round(statuses["5xx"] / count, 4) if count else 0.0,
@@ -124,7 +128,10 @@ class LatencyRecorder:
             "scope": "this API process only; resets when it restarts",
             "window_minutes": round(covered_minutes, 1),
             "max_samples": self.max_samples,
-            "requests_per_minute": round(len(samples) / covered_minutes, 2),
+            # Over at least a minute: just after a restart a handful of
+            # requests in a few seconds would otherwise read as hundreds a
+            # minute.
+            "requests_per_minute": round(len(samples) / max(covered_minutes, 1), 2),
             # Oldest first, one entry per minute of the window, newest last.
             "per_minute": per_minute,
             "status_classes": dict(sorted(statuses.items())),

@@ -97,3 +97,14 @@ def test_an_empty_recorder_reports_nothing_rather_than_failing() -> None:
     assert snap["error_rate"] == 0.0
     assert snap["routes"] == []
     assert UNROUTED.startswith("(")
+
+
+def test_a_fresh_process_does_not_extrapolate_a_burst() -> None:
+    clock = Clock()
+    recorder = LatencyRecorder(clock=clock)
+    clock.now += 6
+    for _ in range(12):
+        recorder.record("GET /health", 200, 1.23456)
+    snap = recorder.snapshot()
+    assert snap["requests_per_minute"] == 12
+    assert snap["p50_ms"] == 1.23
