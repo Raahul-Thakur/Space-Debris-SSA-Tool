@@ -11,6 +11,8 @@ from datetime import datetime, timezone
 
 from fastapi import Request
 
+from sdebris.latency import UNROUTED, LatencyRecorder
+
 
 class JsonFormatter(logging.Formatter):
     def format(self, record: logging.LogRecord) -> str:
@@ -127,10 +129,40 @@ def validate_environment() -> None:
         )
 
 
+def route_template(request: Request) -> str:
+    """The matched route's template, e.g. ``GET /objects/{norad_id}``.
+
+    The router records the route it matched in the request scope, which this
+    middleware shares, so the template is available once the response is
+    back. Requests that never reached a route are grouped under one label
+    rather than keyed by their raw path, which carries ids.
+    """
+    route = request.scope.get("route")
+    path = getattr(route, "path", None)
+    if not path:
+        return UNROUTED
+    return f"{request.method} {path}"
+
+
 async def request_log_middleware(request: Request, call_next):
     started = time.perf_counter()
     request_id = request.headers.get("x-request-id", str(uuid.uuid4()))
-    response = await call_next(request)
+    # Per application, like the public cache, so apps built side by side in
+    # one process (the test suite) keep separate figures.
+    recorder: LatencyRecorder | None = getattr(request.app.state, "latency", None)
+    try:
+        response = await call_next(request)
+    except Exception:
+        # An unhandled error still counts against the error rate; without
+        # this the requests that failed worst would be the ones missing.
+        if recorder is not None:
+            recorder.record(
+                route_template(request), 500, (time.perf_counter() - started) * 1000
+            )
+        raise
+    duration_ms = (time.perf_counter() - started) * 1000
+    if recorder is not None:
+        recorder.record(route_template(request), response.status_code, duration_ms)
     response.headers["x-request-id"] = request_id
     logging.getLogger("sdebris.request").info(
         "request_completed",
@@ -139,7 +171,7 @@ async def request_log_middleware(request: Request, call_next):
             "method": request.method,
             "path": request.url.path,
             "status": response.status_code,
-            "duration_ms": round((time.perf_counter() - started) * 1000, 2),
+            "duration_ms": round(duration_ms, 2),
         },
     )
     return response
