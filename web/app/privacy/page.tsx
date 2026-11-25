@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import Link from "next/link";
 import SiteFooter from "@/components/SiteFooter";
+import { analyticsEnabled } from "@/lib/analytics";
 import { CONTACT_EMAIL } from "@/lib/contact";
 
 export const metadata: Metadata = {
@@ -12,12 +13,19 @@ export const metadata: Metadata = {
 /**
  * Required before Google will publish the OAuth consent screen, but written to
  * be true rather than to satisfy a form. Every claim here is checkable against
- * the source: there is no analytics package in the frontend, the request logger
- * records no address, and the personal fields the database holds are the email
- * the identity provider returned and, for buyers, what the billing webhook keeps
- * after `ledger_payload` strips card and address details.
+ * the source: the only analytics is Cloudflare Web Analytics, loaded only when
+ * NEXT_PUBLIC_CF_ANALYTICS_TOKEN is set (lib/analytics.ts), and the sentences
+ * about it follow that same setting, so a build without it never claims it;
+ * the admin figures are aggregates computed by src/sdebris/usage.py and
+ * latency.py; the request logger records no address; and the personal fields
+ * the database holds are the email the identity provider returned and, for
+ * buyers, what the billing webhook keeps after `ledger_payload` strips card
+ * and address details.
+ *
+ * What is said about Cloudflare Web Analytics is Cloudflare's own description
+ * of the product, attributed to it, not something this site can verify.
  */
-const UPDATED = "7 November 2026";
+const UPDATED = "25 November 2026";
 
 const SECTIONS = [
   { id: "summary", label: "The short version" },
@@ -26,6 +34,7 @@ const SECTIONS = [
   { id: "waitlist", label: "If you join the waitlist" },
   { id: "paying", label: "If you buy Pro" },
   { id: "browser", label: "What is stored in your browser" },
+  { id: "measurement", label: "Counting visits and usage" },
   { id: "not", label: "What this site does not do" },
   { id: "processors", label: "Who else handles it" },
   { id: "retention", label: "How long it is kept" },
@@ -71,8 +80,16 @@ export default function PrivacyPage() {
           <h2>The short version</h2>
           <p>
             You can read everything on this site without an account, and if you do, no
-            personal data is collected at all. There is no analytics, no advertising and
-            no tracking of any kind, on any page.
+            personal data is collected by this site. There is no advertising, and nothing
+            follows you between visits or across other websites.
+          </p>
+          <p>
+            {analyticsEnabled
+              ? "Page visits are counted with Cloudflare Web Analytics, which Cloudflare describes as cookie-free and not based on fingerprinting. "
+              : "This site does not run any visitor analytics. "}
+            The operator also sees aggregate counts, such as how many accounts were active
+            this week or how many screenings ran, computed from the records described
+            below. <a href="#measurement">Counting visits and usage</a> has the detail.
           </p>
           <p>
             If you choose to sign in, the only personal information held is the email
@@ -95,7 +112,10 @@ export default function PrivacyPage() {
             reach the application at all. When a request does reach it, the application
             log records the method, the path, the response status and how long it took.
             It does not record your IP address, and it does not record your browser&apos;s
-            user agent.
+            user agent. For the response-time figures described below, the application
+            also keeps, in memory only, the route&apos;s pattern (for example{" "}
+            <code>/objects/{"{norad_id}"}</code>, never the object you asked for), the
+            status and the time taken, for at most the last hour.
           </p>
         </section>
 
@@ -184,16 +204,74 @@ export default function PrivacyPage() {
             </li>
           </ul>
           <p>
-            No tracking cookies are set, by this site or by anyone else, and there are no
-            third-party scripts on any page. The typefaces are served from this site too,
-            so loading a page does not contact Google Fonts or any other font service.
+            No tracking cookies are set, by this site or by anyone else.{" "}
+            {analyticsEnabled
+              ? "The one third-party script on the site is Cloudflare's Web Analytics beacon, described below; Cloudflare says it sets no cookies and stores nothing in your browser. "
+              : "There are no third-party scripts on any page. "}
+            The typefaces are served from this site too, so loading a page does not
+            contact Google Fonts or any other font service.
+          </p>
+        </section>
+
+        <section id="measurement">
+          <h2>Counting visits and usage</h2>
+          <p>Two things are measured, both in aggregate.</p>
+          <h3>Page visits: Cloudflare Web Analytics</h3>
+          {analyticsEnabled ? (
+            <>
+              <p>
+                Every page loads a small script from Cloudflare,{" "}
+                <code>static.cloudflareinsights.com</code>, which reports the visit to{" "}
+                <code>cloudflareinsights.com</code>. It is run by Cloudflare, which already
+                hosts this site. As Cloudflare describes it, the report covers the page
+                visited, the referring page, your browser, operating system and device
+                type, the country the visit came from, and how quickly the page loaded.
+              </p>
+              <p>
+                Cloudflare states that Web Analytics uses no cookies or local storage, does
+                not fingerprint visitors, and does not use your IP address to track you or
+                store it for analytics. Your browser does send the report from your IP
+                address, as it does every request, and Cloudflare&apos;s handling of that
+                is governed by its own privacy policy. What this site&apos;s operator sees
+                is a dashboard of totals: visits, popular pages, referrers, countries,
+                browsers and load times. It does not show individual visitors.
+              </p>
+              <p>
+                Blocking the script, as many content blockers do, changes nothing about how
+                the site works.
+              </p>
+            </>
+          ) : (
+            <p>
+              The site is set up to use Cloudflare Web Analytics, but this build does not
+              load it: no script from Cloudflare runs on these pages. If it is switched
+              on, this section describes what it collects.
+            </p>
+          )}
+          <h3>Use of the service: the operator&apos;s own figures</h3>
+          <p>
+            An administrator&apos;s page shows totals computed from the records the service
+            already keeps to work at all: how many accounts ran a command, started a
+            screening or watched an object in the last day, week and month; how many
+            accounts appeared each week; how many screenings ran each day and how long they
+            took; the size of the waitlist; and how quickly the API has been answering,
+            by route. Nothing new is recorded for these figures, and the page shows counts
+            only: no email addresses, account names or commands.
+          </p>
+          <p>
+            The response times are held in the API&apos;s memory for at most an hour and
+            are lost whenever it restarts.
           </p>
         </section>
 
         <section id="not">
           <h2>What this site does not do</h2>
           <ul className="docs-list">
-            <li>No analytics or measurement product of any kind.</li>
+            <li>
+              {analyticsEnabled
+                ? "No analytics that identifies you: Cloudflare Web Analytics, above, is the only measurement product, and it sets no cookies."
+                : "No analytics or measurement product of any kind."}
+            </li>
             <li>No advertising, and no data shared with advertisers.</li>
             <li>No selling or renting of personal data, in any circumstances.</li>
             <li>No tracking across other websites.</li>
@@ -228,6 +306,15 @@ export default function PrivacyPage() {
                 <td>Cloudflare</td>
                 <td>Hosting and the edge cache</td>
                 <td>Requests for pages, as any web host does</td>
+              </tr>
+              <tr>
+                <td>Cloudflare Web Analytics{analyticsEnabled ? "" : " (if enabled)"}</td>
+                <td>Counts page visits</td>
+                <td>
+                  The page visited, referrer, browser, operating system, country and load
+                  times. Per Cloudflare, no cookies, no fingerprinting and no stored IP
+                  address
+                </td>
               </tr>
               <tr>
                 <td>Cloudflare R2</td>

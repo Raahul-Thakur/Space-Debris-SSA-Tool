@@ -802,6 +802,108 @@ button { color: inherit; }
 .account-actions button.danger { border-color: var(--signal); color: var(--signal); }
 .account-actions button.danger:hover { background: var(--signal); color: var(--paper); }
 
+/* ====================================================================== admin
+   The usage page reuses the account page's sheet and adds a KPI row, two
+   hand-drawn bar charts and a latency table, all in the existing inks. */
+.admin-shell { max-width: 880px; }
+.admin-kpis {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
+  gap: 1px;
+  margin: 0;
+  background: var(--rule);
+  border: 1px solid var(--rule);
+}
+.admin-kpi { padding: 14px 14px 12px; background: var(--paper); }
+.admin-kpi dt {
+  font: 500 9px var(--mono);
+  letter-spacing: .14em;
+  text-transform: uppercase;
+  color: var(--ink-faint);
+}
+.admin-kpi dd { margin: 6px 0 0; font: 400 36px/1 var(--display); color: var(--ink); }
+.admin-kpi small {
+  display: block;
+  margin-top: 6px;
+  font: 500 9px var(--mono);
+  letter-spacing: .1em;
+  text-transform: uppercase;
+  color: var(--ink-faint);
+}
+
+.admin-chart { margin: 0 0 24px; }
+.admin-chart figcaption {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 8px;
+  font: 400 13px var(--text);
+  color: var(--ink-soft);
+}
+.admin-chart figcaption span:last-child { font: 500 10px var(--mono); color: var(--ink-faint); }
+.admin-chart svg { display: block; width: 100%; height: 150px; }
+.admin-chart-bar { fill: var(--ink); }
+.admin-chart .latest .admin-chart-bar { fill: var(--signal); }
+.admin-chart-hit { fill: transparent; }
+.admin-chart g:hover .admin-chart-hit { fill: var(--paper-band); }
+.admin-chart-base { stroke: var(--rule-strong); stroke-width: 1; vector-effect: non-scaling-stroke; }
+.admin-chart-axis {
+  display: flex;
+  justify-content: space-between;
+  margin-top: -16px;
+  font: 500 9px var(--mono);
+  letter-spacing: .1em;
+  text-transform: uppercase;
+  color: var(--ink-faint);
+}
+.admin-chart-table { margin-top: 10px; }
+.admin-chart-table summary {
+  cursor: pointer;
+  font: 500 9px var(--mono);
+  letter-spacing: .14em;
+  text-transform: uppercase;
+  color: var(--ink-soft);
+}
+
+.admin-table-wrap { overflow-x: auto; }
+.admin-table,
+.admin-chart-table table {
+  width: 100%;
+  border-collapse: collapse;
+  font: 400 12px var(--mono);
+  color: var(--ink);
+}
+.admin-table th,
+.admin-table td,
+.admin-chart-table th,
+.admin-chart-table td {
+  padding: 7px 8px 7px 0;
+  border-bottom: 1px solid var(--rule);
+  text-align: right;
+  white-space: nowrap;
+}
+.admin-table th:first-child,
+.admin-chart-table th:first-child,
+.admin-chart-table td:first-child { text-align: left; }
+.admin-table thead th,
+.admin-chart-table thead th {
+  font: 500 9px var(--mono);
+  letter-spacing: .14em;
+  text-transform: uppercase;
+  color: var(--ink-faint);
+}
+.admin-table code { font: 500 12px var(--mono); }
+.admin-signin {
+  padding: 11px 17px;
+  border: 1px solid var(--ink);
+  color: var(--ink);
+  text-decoration: none;
+  font: 500 10px var(--mono);
+  letter-spacing: .16em;
+  text-transform: uppercase;
+}
+.admin-signin:hover { background: var(--ink); color: var(--paper); }
+
 /* ======================================================================= rail */
 .rail {
   grid-row: 2;

@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import { Archivo, IBM_Plex_Mono, Instrument_Serif } from "next/font/google";
+import { CF_BEACON_SRC, analyticsEnabled, beaconConfig } from "@/lib/analytics";
 import { SITE_URL } from "@/lib/site";
 import { THEME_BOOTSTRAP } from "@/lib/theme";
 import "driver.js/dist/driver.css";
@@ -78,7 +79,17 @@ export default function RootLayout({ children }: Readonly<{ children: React.Reac
         */}
         <script dangerouslySetInnerHTML={{ __html: THEME_BOOTSTRAP }} />
       </head>
-      <body>{children}</body>
+      <body>
+        {children}
+        {/*
+          Cloudflare Web Analytics, only when a token was set at build time
+          (see lib/analytics.ts and the privacy page). An external script, so
+          it needs no CSP hash; its origins are allowed in public/_headers.
+        */}
+        {analyticsEnabled && (
+          <script defer src={CF_BEACON_SRC} data-cf-beacon={beaconConfig()} />
+        )}
+      </body>
     </html>
   );
 }

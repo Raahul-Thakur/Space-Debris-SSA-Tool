@@ -64,6 +64,7 @@ from sdebris.commands.parser import COMMAND_HELP
 from sdebris.config import load_config, load_env
 from sdebris.ingest.celestrak import CelesTrakClient
 from sdebris.jobs import ScreeningJobManager
+from sdebris.latency import LatencyRecorder
 from sdebris.maneuver import Burn, evaluate
 from sdebris.models import SpaceObject
 from sdebris.monitoring import seed_well_known_objects
@@ -153,6 +154,7 @@ from sdebris.runtime import (
 from sdebris.shared_state import describe as describe_shared_state
 from sdebris.shared_state import make_limiter, make_shared_bodies, make_stream_slots
 from sdebris.tenancy import owns, scope
+from sdebris.usage import usage_stats
 
 billing_log = logging.getLogger("sdebris.billing")
 
@@ -746,6 +748,9 @@ def create_app(database_url: str | None = None) -> FastAPI:
     public_cache = PublicCache(shared=make_shared_bodies())
     app.state.public_cache = public_cache
     app.state.streams = streams
+    # Recent request latency for the admin page, fed by request_log_middleware.
+    # In memory and per process: see sdebris.latency for what that implies.
+    app.state.latency = LatencyRecorder()
 
     def _public_json(key: str, ttl: int, compute) -> Response:
         """Serve a public payload from cache, and say so in the headers.
@@ -2146,6 +2151,20 @@ def create_app(database_url: str | None = None) -> FastAPI:
         )
         session.commit()
         return {"status": "ok", "outcome": outcome}
+
+    @app.get("/admin/stats")
+    def admin_stats(session: SessionDep, principal: PrincipalDep) -> dict[str, object]:
+        """Aggregate usage and live latency, for the admin page.
+
+        Counts only, computed from rows the service already keeps; nothing is
+        tracked for this and no account is named in the answer. Not cached:
+        it is one administrator's occasional request, and stale figures are
+        what it exists to avoid.
+        """
+        require_role(principal, OperatorRole.ADMIN)
+        stats = usage_stats(session)
+        stats["latency"] = app.state.latency.snapshot()
+        return stats
 
     # -------------------------------------------------------------- governance
     @app.get("/audit-actions", response_model=list[AuditActionView])

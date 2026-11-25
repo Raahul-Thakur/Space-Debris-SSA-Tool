@@ -95,6 +95,9 @@ Render's load balancer needs no code change. The next limits would be:
 * **Database connections.** Each process holds up to `SDEBRIS_DB_POOL_SIZE`
   plus `SDEBRIS_DB_MAX_OVERFLOW`. Use Supabase's transaction pooler and keep
   the total under its limit.
+* **Latency figures.** `/admin/stats` reports the latency recorded by the
+  process that answers it, so with several processes it is a sample of one.
+  Usage counts come from the database and are exact.
 * **Live streams.** Each open activity feed is a poll of the database every
   2 s. Past a few hundred concurrent signed-in users, replace polling with
   Postgres `LISTEN/NOTIFY` or Redis pub/sub fan-out.
