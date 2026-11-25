@@ -17,9 +17,14 @@
 #                on every page on purpose: moving between pages inside the
 #                app does not load a new document, so the first page's
 #                policy governs everything the visitor opens after it.
+#                The one external origin is static.cloudflareinsights.com,
+#                Cloudflare Web Analytics' beacon, which the layout adds
+#                only when NEXT_PUBLIC_CF_ANALYTICS_TOKEN is set at build
+#                time; without the token nothing loads from it.
 #   connect-src  This site (including the /api/public proxy), the API on
 #                Render for signed-in calls and the screening stream, and
 #                Supabase for sign-in. Must match NEXT_PUBLIC_SDEBRIS_API_URL.
+#                Also cloudflareinsights.com, where that beacon reports.
 #   worker-src   Cesium's workers, from /cesium/ or built from blob: URLs.
 #   img-src      data: and blob: for Cesium's textures and its own logo.
 #   font-src     'self' only: the typefaces are self-hosted by next/font.
@@ -45,7 +50,7 @@
   X-Content-Type-Options: nosniff
   Referrer-Policy: strict-origin-when-cross-origin
   Permissions-Policy: camera=(), microphone=(), geolocation=(), payment=()
-  Content-Security-Policy-Report-Only: default-src 'self'; script-src 'self' 'unsafe-eval' 'wasm-unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self'; connect-src 'self' https://sdebris-api.onrender.com https://*.supabase.co wss://*.supabase.co; worker-src 'self' blob:; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'
+  Content-Security-Policy-Report-Only: default-src 'self'; script-src 'self' 'unsafe-eval' 'wasm-unsafe-eval' https://static.cloudflareinsights.com; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self'; connect-src 'self' https://sdebris-api.onrender.com https://*.supabase.co wss://*.supabase.co https://cloudflareinsights.com; worker-src 'self' blob:; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'
 
 # Content-hashed by the build, so they can be kept indefinitely.
 /_next/static/*

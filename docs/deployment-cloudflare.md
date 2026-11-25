@@ -54,6 +54,7 @@ visitors still see the orbital picture while the Render instance is waking.
     | `NEXT_PUBLIC_SUPABASE_URL` | your Supabase project URL |
     | `NEXT_PUBLIC_SUPABASE_ANON_KEY` | your Supabase publishable key |
     | `NEXT_PUBLIC_SITE_URL` | the site's public address, e.g. `https://astra-ssa.pages.dev` |
+    | `NEXT_PUBLIC_CF_ANALYTICS_TOKEN` | optional; see [Visitor analytics](#visitor-analytics-optional) |
 
 4. **Runtime variables for the proxy** (same page; these are read by the
    function on each request):
@@ -64,6 +65,57 @@ visitors still see the orbital picture while the Render instance is waking.
     | `SDEBRIS_PROXY_TOKEN` | **Secret** | the same value as `SDEBRIS_PROXY_TOKEN` on Render |
 
 5. **Deploy**, then open the `*.pages.dev` address.
+
+## Visitor analytics (optional)
+
+The site can count page visits with **Cloudflare Web Analytics**. It is off
+unless you turn it on, because it is a third-party script: the beacon loads
+from `https://static.cloudflareinsights.com/beacon.min.js` and reports to
+`https://cloudflareinsights.com/cdn-cgi/rum`. Cloudflare describes it as
+cookie-free and not based on fingerprinting; the privacy page repeats that
+description, attributed to Cloudflare, and states what it collects.
+
+The privacy page, the beacon and the CSP all follow one build variable, so
+they cannot disagree: without it no script is added and the privacy page
+says there is no visitor analytics; with it every page gets the beacon and
+the privacy page describes it and lists it among the processors.
+
+To turn it on:
+
+1. Cloudflare dashboard → *Analytics & Logs* → *Web Analytics* → *Add a
+   site*, and enter the site's hostname (the `*.pages.dev` address or your
+   custom domain). The labels in the dashboard move from time to time; the
+   product is called Web Analytics.
+2. Choose the manual, JavaScript-snippet setup and copy the `token` value
+   out of the snippet it shows (`data-cf-beacon='{"token": "…"}'`). The
+   token is not a secret: it ends up in every page's HTML.
+3. In the Pages project, *Settings → Variables and secrets*, add
+   `NEXT_PUBLIC_CF_ANALYTICS_TOKEN` (type *Text*) with that value, and
+   redeploy. Like every `NEXT_PUBLIC_*` value it is read at build time.
+4. Check it: `curl -s https://astra-ssa.pages.dev/ | grep cloudflareinsights`
+   shows the beacon, and visits appear in the Web Analytics dashboard after a
+   few minutes.
+
+To turn it off, delete the variable and redeploy.
+
+!!! warning "Use the token, not the one-click option"
+    Pages can also enable Web Analytics from the project itself, in which
+    case Cloudflare adds the beacon to pages as it serves them. Prefer the
+    token route above. With the one-click option the script is added outside
+    the build, so the privacy page (which follows the build variable) would
+    still say there is no analytics, and how the injected script interacts
+    with the per-page CSP rules written by `scripts/csp-hashes.mjs` has not
+    been tested here; if it arrives as an inline script, its hash would be
+    missing and an enforced policy would block it.
+
+`web/public/_headers` already allows both origins (`script-src
+https://static.cloudflareinsights.com`, `connect-src
+https://cloudflareinsights.com`), whether or not the token is set.
+
+The API's own usage figures (active accounts, sign-ups, screenings, latency)
+need no setup: an admin opens `/admin` on the site, which reads
+`GET /admin/stats`. Its latency figures are per API process, held in memory
+and reset when the instance restarts or wakes from sleep.
 
 ## Point the other services at the new address
 
