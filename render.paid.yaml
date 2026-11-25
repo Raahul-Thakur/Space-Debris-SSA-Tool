@@ -1,0 +1,127 @@
+# The paid stack: ready to deploy, not deployed.
+#
+# render.yaml is the free stack (one 0.1-CPU instance, screening in-process).
+# This blueprint is what to switch to when traffic or paying users justify
+# it. See docs/scaling.md for what each part buys, the measured numbers, and
+# the monthly cost (about $42 at the time of writing: Standard web $25,
+# Starter worker $7, Starter Key Value $10; check Render's current prices).
+#
+# To use it: in Render, New > Blueprint, point it at this file
+# (render.paid.yaml), fill in the secrets marked sync: false (the same values
+# as the free stack), then move the custom domain / SDEBRIS_API_URL on
+# Cloudflare to the new web service and retire the free one.
+services:
+  - type: web
+    name: sdebris-api
+    runtime: docker
+    # 1 CPU, 2 GB. Measured locally under the same limits: 1,200 simulated
+    # users through the edge cache at p95 120 ms with no errors. "starter"
+    # (0.5 CPU, 512 MB, $7) held 800 at p95 99 ms; set WEB_CONCURRENCY to 1
+    # there, as two processes do not fit in 512 MB with room to spare.
+    plan: standard
+    dockerfilePath: ./Dockerfile
+    healthCheckPath: /health
+    envVars:
+      - key: SDEBRIS_ENV
+        value: production
+      # Screening runs on the worker service below, through the Redis queue:
+      # a job survives a deploy, and a heavy screening no longer takes CPU
+      # from the requests the API is serving.
+      - key: SDEBRIS_JOB_BACKEND
+        value: redis
+      - key: SDEBRIS_EMBEDDED_WORKER
+        value: "false"
+      # Two API processes on the instance's CPU. The rate limits, live-stream
+      # slots and response cache are shared through Redis, so two processes
+      # enforce one limit between them. The API refuses to start with more
+      # than one process and no Redis.
+      - key: WEB_CONCURRENCY
+        value: "2"
+      - key: SDEBRIS_DB_POOL_SIZE
+        value: "10"
+      - key: SDEBRIS_REDIS_URL
+        fromService:
+          type: keyvalue
+          name: sdebris-redis
+          property: connectionString
+      - key: SDEBRIS_DATABASE_URL
+        sync: false
+      - key: SDEBRIS_AUTH_JWKS_URL
+        sync: false
+      - key: SDEBRIS_AUTH_ISSUER
+        sync: false
+      - key: SDEBRIS_AUTH_AUDIENCE
+        value: authenticated
+      - key: SDEBRIS_CORS_ORIGINS
+        sync: false
+      # Optional: a regular expression matching Vercel preview domains, so
+      # preview deployments can reach the API. See docs/deployment-free-tier.md.
+      - key: SDEBRIS_CORS_ORIGIN_REGEX
+        sync: false
+      # Shared with Vercel. Proves a request arrived through the caching
+      # edge rather than from a browser, which exempts it from the
+      # per-address anonymous allowance -- behind a cache every visitor
+      # shares an address, so metering it would throttle everyone as one
+      # client. Leave unset and nothing breaks; the exemption simply does
+      # not apply. See docs/capacity.md.
+      - key: SDEBRIS_PROXY_TOKEN
+        sync: false
+      # Signing secret from the Dodo Payments webhook settings. Without it the
+      # billing webhook refuses every delivery with 503 rather than trusting
+      # unsigned input.
+      - key: SDEBRIS_BILLING_WEBHOOK_SECRET
+        sync: false
+      # Dodo API key, used to create checkouts and open the customer portal.
+      # Without it the pricing page shows offers but checkout returns 503.
+      - key: SDEBRIS_DODO_API_KEY
+        sync: false
+      # Paid plans are closed during the beta: checkout refuses, and the pricing
+      # page shows Pro as coming soon with a waitlist. Set to "true" to open
+      # sales once the Dodo go-live checklist is done.
+      - key: SDEBRIS_BILLING_OPEN
+        value: "false"
+      # "test" until a real purchase has been run end to end, then "live".
+      - key: SDEBRIS_DODO_ENVIRONMENT
+        value: test
+      # Dodo product ids. Only these two grant Pro; a payment for anything
+      # else is recorded and ignored.
+      - key: SDEBRIS_BILLING_PRO_PRODUCT_ID
+        sync: false
+      - key: SDEBRIS_BILLING_LIFETIME_PRODUCT_ID
+        sync: false
+      # Where checkout returns the buyer. Defaults to the first CORS origin.
+      - key: SDEBRIS_SITE_URL
+        sync: false
+
+  # Runs screening jobs from the Redis queue (scripts/start-worker.sh).
+  - type: worker
+    name: sdebris-worker
+    runtime: docker
+    plan: starter
+    dockerfilePath: ./Dockerfile
+    dockerCommand: sh scripts/start-worker.sh
+    envVars:
+      - key: SDEBRIS_ENV
+        value: production
+      - key: SDEBRIS_JOB_BACKEND
+        value: redis
+      - key: SDEBRIS_DATABASE_URL
+        sync: false
+      - key: SDEBRIS_REDIS_URL
+        fromService:
+          type: keyvalue
+          name: sdebris-redis
+          property: connectionString
+      # One process per CPU: screening is CPU-bound.
+      - key: SDEBRIS_WORKER_PROCESSES
+        value: "1"
+
+  # Redis: the job queue, plus the shared rate limits, stream slots and
+  # response cache. Reachable only from these services.
+  - type: keyvalue
+    name: sdebris-redis
+    plan: starter
+    ipAllowList: []
+    # Under memory pressure, evict only keys that expire anyway (cache
+    # entries, rate-limit windows), never a queued job.
+    maxmemoryPolicy: volatile-lru

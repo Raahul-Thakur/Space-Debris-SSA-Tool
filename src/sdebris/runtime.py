@@ -119,6 +119,19 @@ def validate_environment() -> None:
         raise RuntimeError("production requires PostgreSQL; SQLite is ephemeral")
     if "localhost" in os.environ["SDEBRIS_CORS_ORIGINS"]:
         raise RuntimeError("production CORS origins must not contain localhost")
+    workers = int(os.getenv("WEB_CONCURRENCY", "1") or "1")
+    if workers > 1 and backend == "thread":
+        # Each process would run its own job pool and, at startup, mark every
+        # other process's running jobs as failed (fail_orphaned_jobs).
+        raise RuntimeError(
+            "WEB_CONCURRENCY > 1 needs SDEBRIS_JOB_BACKEND=redis: the thread "
+            "backend assumes a single API process"
+        )
+    if workers > 1 and not os.getenv("SDEBRIS_REDIS_URL"):
+        raise RuntimeError(
+            "WEB_CONCURRENCY > 1 needs SDEBRIS_REDIS_URL, or each process would "
+            "enforce its own copy of every rate limit"
+        )
     if backend == "thread":
         logging.getLogger("sdebris.runtime").warning(
             "running production screening on the in-process thread pool; "

@@ -23,6 +23,8 @@ nav:
   - Cloudflare Pages frontend: deployment-cloudflare.md
   - Database backups: backups.md
   - Capacity and sign-in: capacity.md
+  - Load test: load-test.md
+  - Scaling: scaling.md
 
 markdown_extensions:
   - admonition

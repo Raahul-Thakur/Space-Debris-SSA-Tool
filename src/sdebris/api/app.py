@@ -150,6 +150,8 @@ from sdebris.runtime import (
     request_log_middleware,
     validate_environment,
 )
+from sdebris.shared_state import describe as describe_shared_state
+from sdebris.shared_state import make_limiter, make_shared_bodies, make_stream_slots
 from sdebris.tenancy import owns, scope
 
 billing_log = logging.getLogger("sdebris.billing")
@@ -690,10 +692,22 @@ def create_app(database_url: str | None = None) -> FastAPI:
     configure_error_tracking()
     database = Database(database_url)
     jobs = ScreeningJobManager(database.session_factory)
-    streams = StreamSlots(MAX_STREAMS_PER_ACCOUNT, MAX_STREAMS)
-    command_limiter = SlidingWindowLimiter()
-    anonymous_limiter = SlidingWindowLimiter()
-    waitlist_limiter = SlidingWindowLimiter(window_seconds=WAITLIST_WINDOW_SECONDS)
+    # Shared through Redis when SDEBRIS_REDIS_URL is set, so that several API
+    # processes enforce one limit between them rather than one each. Without
+    # it these are the in-process versions. See sdebris.shared_state.
+    streams = make_stream_slots(
+        StreamSlots(MAX_STREAMS_PER_ACCOUNT, MAX_STREAMS),
+        MAX_STREAMS_PER_ACCOUNT,
+        MAX_STREAMS,
+        lease_seconds=MAX_STREAM_SECONDS + 120,
+    )
+    command_limiter = make_limiter("commands", SlidingWindowLimiter())
+    anonymous_limiter = make_limiter("anonymous", SlidingWindowLimiter())
+    waitlist_limiter = make_limiter(
+        "waitlist",
+        SlidingWindowLimiter(window_seconds=WAITLIST_WINDOW_SECONDS),
+        window_seconds=WAITLIST_WINDOW_SECONDS,
+    )
     authenticator = Authenticator()
     # Shared secret proving a request came from the caching edge in front of
     # this service rather than from a browser. Unset by default, in which
@@ -729,7 +743,7 @@ def create_app(database_url: str | None = None) -> FastAPI:
     # Per-application rather than module-level, so that two apps built in
     # the same process -- which is what the test suite does -- cannot serve
     # each other's rows.
-    public_cache = PublicCache()
+    public_cache = PublicCache(shared=make_shared_bodies())
     app.state.public_cache = public_cache
     app.state.streams = streams
 
@@ -918,8 +932,8 @@ def create_app(database_url: str | None = None) -> FastAPI:
             )
 
     @app.get("/health")
-    def health() -> dict[str, str]:
-        return {"status": "ok", "version": __version__}
+    def health() -> dict[str, object]:
+        return {"status": "ok", "version": __version__, "shared_state": describe_shared_state()}
 
     @app.get("/ready")
     def ready(session: SessionDep) -> dict[str, str]:

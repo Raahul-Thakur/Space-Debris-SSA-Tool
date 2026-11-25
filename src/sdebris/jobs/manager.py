@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import hashlib
 import os
 from collections.abc import Callable
 from concurrent.futures import ThreadPoolExecutor
@@ -10,7 +11,7 @@ from threading import Lock
 from time import monotonic
 from typing import Any
 
-from sqlalchemy import func, select
+from sqlalchemy import func, select, text
 from sqlalchemy.orm import sessionmaker
 
 from sdebris.config import load_config
@@ -46,6 +47,25 @@ class JobTimedOut(RuntimeError):
     pass
 
 
+
+#: Advisory lock keys: one for admitting jobs, and one per job (derived from
+#: its id) for numbering its progress events.
+_ADMISSION_LOCK = 0x5ADB_0001
+
+
+def _job_lock_key(job_id: str) -> int:
+    return int.from_bytes(hashlib.sha256(job_id.encode()).digest()[:7], "big")
+
+
+def _cluster_lock(session: Any, key: int) -> None:
+    """Hold a Postgres advisory lock on ``key`` until the transaction ends.
+
+    The in-process locks only order threads of one process. On SQLite (a
+    single local process) they are all there is, and this does nothing.
+    """
+    if session.get_bind().dialect.name == "postgresql":
+        session.execute(text("SELECT pg_advisory_xact_lock(:key)"), {"key": key})
+
 class ScreeningJobManager:
     """Runs only the known screening operation; no shell is involved."""
 
@@ -65,8 +85,9 @@ class ScreeningJobManager:
         )
         self._event_lock = Lock()
         # Serialises "may this job start?" with inserting it, so two requests
-        # cannot both pass a limit that only one of them fits under. The API
-        # runs as a single instance, so an in-process lock is enough.
+        # cannot both pass a limit that only one of them fits under. Within a
+        # process this lock; across processes (several API workers, or a
+        # separate job worker) a Postgres advisory lock, taken in create().
         self._admission_lock = Lock()
 
     def fail_orphaned_jobs(self) -> int:
@@ -128,6 +149,7 @@ class ScreeningJobManager:
             f"--threshold {payload.threshold_km:g}km"
         )
         with self._admission_lock, self.session_factory() as session:
+            _cluster_lock(session, _ADMISSION_LOCK)
             if admit is not None:
                 admit(session)
             job = ScreeningJobRecord(
@@ -181,6 +203,9 @@ class ScreeningJobManager:
         payload: dict[str, Any] | None = None,
     ) -> None:
         with self._event_lock:
+            # The API (a cancellation) and the worker (progress) can both
+            # append to one job from different processes.
+            _cluster_lock(session, _job_lock_key(job.id))
             sequence = (
                 session.scalar(
                     select(func.max(ScreeningJobEventRecord.sequence)).where(

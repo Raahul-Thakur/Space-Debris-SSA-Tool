@@ -142,6 +142,7 @@ class Analyst(_Base):
             response = self.client.post(
                 "/auth/development-token",
                 params={"subject": subject, "role": "analyst"},
+                headers=self.headers,  # from this user's own address
                 name="setup: dev token",
             )
             token = response.json()["access_token"]

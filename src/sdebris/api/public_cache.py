@@ -40,15 +40,21 @@ __all__ = ["CacheStats", "PublicCache"]
 class CacheStats:
     """Hit and miss counts, reported on ``/health`` for tuning."""
 
-    __slots__ = ("evictions", "hits", "misses")
+    __slots__ = ("evictions", "hits", "misses", "shared_hits")
 
     def __init__(self) -> None:
         self.hits = 0
+        self.shared_hits = 0
         self.misses = 0
         self.evictions = 0
 
     def as_dict(self) -> dict[str, int]:
-        return {"hits": self.hits, "misses": self.misses, "evictions": self.evictions}
+        return {
+            "hits": self.hits,
+            "shared_hits": self.shared_hits,
+            "misses": self.misses,
+            "evictions": self.evictions,
+        }
 
 
 class PublicCache:
@@ -69,6 +75,7 @@ class PublicCache:
     def __init__(
         self,
         *,
+        shared: Any = None,
         max_entries: int = 256,
         max_bytes: int = 64 * 1024 * 1024,
         max_entry_bytes: int = 4 * 1024 * 1024,
@@ -80,6 +87,10 @@ class PublicCache:
         self._max_entry_bytes = max_entry_bytes
         self._bytes = 0
         self.stats = CacheStats()
+        # With several API processes, a second tier in Redis (a
+        # ``sdebris.shared_state.SharedBodies``) lets one process's work
+        # serve all of them. This process's memory stays the first tier.
+        self._shared = shared
 
     @property
     def size_bytes(self) -> int:
@@ -111,11 +122,24 @@ class PublicCache:
                 self.stats.hits += 1
                 return entry[1]
 
+        body = self._shared.get(key) if self._shared is not None else None
+        if body is not None:
+            self.stats.shared_hits += 1
+            # Keep it locally too, for at most the time it may be served.
+            self._store(key, body, ttl_seconds)
+            return body
+
         self.stats.misses += 1
         body = _encode(compute())
+        if self._shared is not None and len(body) <= self._max_entry_bytes:
+            self._shared.put(key, body, ttl_seconds)
 
         if len(body) > self._max_entry_bytes:
             return body
+        self._store(key, body, ttl_seconds)
+        return body
+
+    def _store(self, key: str, body: bytes, ttl_seconds: float) -> None:
         with self._lock:
             previous = self._entries.pop(key, None)
             if previous is not None:
@@ -128,7 +152,6 @@ class PublicCache:
                 _, (_, evicted) = self._entries.popitem(last=False)
                 self._bytes -= len(evicted)
                 self.stats.evictions += 1
-        return body
 
 
 def _encode(payload: Any) -> bytes:

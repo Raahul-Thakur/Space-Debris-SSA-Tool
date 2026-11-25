@@ -17,6 +17,7 @@ BASE = {
     "SDEBRIS_AUTH_JWKS_URL": "https://p.supabase.co/auth/v1/.well-known/jwks.json",
     "SDEBRIS_AUTH_ISSUER": "https://p.supabase.co/auth/v1",
     "SDEBRIS_CORS_ORIGINS": "https://astra-ssa.vercel.app",
+    "WEB_CONCURRENCY": None,
 }
 
 
@@ -54,6 +55,23 @@ def test_redis_backend_still_requires_a_broker(monkeypatch) -> None:
 def test_redis_backend_accepts_a_broker(monkeypatch) -> None:
     _apply(
         monkeypatch,
+        SDEBRIS_JOB_BACKEND="redis",
+        SDEBRIS_REDIS_URL="rediss://default:pw@host:6379",
+    )
+    validate_environment()
+
+
+def test_several_api_processes_need_the_redis_backend(monkeypatch) -> None:
+    # Each process would run its own job pool and fail the others' jobs.
+    _apply(monkeypatch, WEB_CONCURRENCY="2", SDEBRIS_JOB_BACKEND="thread")
+    with pytest.raises(RuntimeError, match="SDEBRIS_JOB_BACKEND=redis"):
+        validate_environment()
+
+
+def test_several_api_processes_with_redis_start(monkeypatch) -> None:
+    _apply(
+        monkeypatch,
+        WEB_CONCURRENCY="2",
         SDEBRIS_JOB_BACKEND="redis",
         SDEBRIS_REDIS_URL="rediss://default:pw@host:6379",
     )
