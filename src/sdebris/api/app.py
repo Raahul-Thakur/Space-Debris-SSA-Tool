@@ -20,6 +20,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse, Response, StreamingResponse
 from sqlalchemy import func, select, text
 from sqlalchemy.exc import IntegrityError
+from sqlalchemy.exc import TimeoutError as PoolTimeoutError
 from sqlalchemy.orm import Session
 from starlette.concurrency import run_in_threadpool
 
@@ -879,6 +880,17 @@ def create_app(database_url: str | None = None) -> FastAPI:
         allow_methods=["*"],
         allow_headers=["*"],
     )
+
+    @app.exception_handler(PoolTimeoutError)
+    async def database_busy(_request: Request, _exc: PoolTimeoutError) -> JSONResponse:
+        # Every database connection was in use for the whole pool timeout:
+        # the instance is overloaded, not broken. Say so quickly, and when to
+        # come back, rather than letting a generic 500 through.
+        return JSONResponse(
+            status_code=503,
+            content={"detail": "the service is busy; retry in a few seconds"},
+            headers={"Retry-After": "5"},
+        )
 
     @app.exception_handler(NotFoundError)
     async def not_found_handler(_request: Request, exc: NotFoundError) -> JSONResponse:

@@ -120,3 +120,60 @@ def test_activity_feed_rejects_a_malformed_cursor(tmp_path) -> None:
             assert ok.status_code == 200
 
     _run(scenario())
+
+
+def test_a_client_far_behind_gets_the_newest_items_in_few_queries(tmp_path) -> None:
+    """Collectors took the oldest 200 after the cursor, dropping the newest,
+    and looked up each event's assessment and objects one at a time."""
+    from datetime import timedelta
+
+    from sqlalchemy import event as sa_event
+
+    from sdebris.activity import collect_activity
+    from sdebris.auth import Principal
+    from sdebris.ontology.database import Database
+    from sdebris.ontology.orm import (
+        ConjunctionEventRecord,
+        RiskAssessmentRecord,
+        ScreeningRunRecord,
+        SpaceObjectRecord,
+    )
+
+    database = Database(f"sqlite:///{(tmp_path / 'far.db').as_posix()}")
+    database.initialize()
+    base = datetime(2026, 11, 1, tzinfo=timezone.utc)
+    with database.session_factory() as session:
+        a = SpaceObjectRecord(norad_id="25544", name="ISS")
+        b = SpaceObjectRecord(norad_id="99999", name="DEB")
+        run = ScreeningRunRecord(propagator_version="t", configuration={}, input_versions={})
+        session.add_all([a, b, run])
+        session.flush()
+        for n in range(250):
+            event = ConjunctionEventRecord(
+                screening_run_id=run.id, primary_object_id=a.id, secondary_object_id=b.id,
+                tca=base + timedelta(days=30, minutes=n), miss_distance_km=1.0 + n,
+                relative_speed_km_s=10.0, created_at=base + timedelta(minutes=n),
+            )
+            session.add(event)
+            session.flush()
+            session.add(RiskAssessmentRecord(
+                event_id=event.id, tier="watch", probability_of_collision=1e-6,
+                explanation="t", model_version="t",
+            ))
+        session.commit()
+
+    queries = {"n": 0}
+    sa_event.listen(
+        database.engine, "before_cursor_execute",
+        lambda *args, **kwargs: queries.__setitem__("n", queries["n"] + 1),
+    )
+    principal = Principal(subject="a", email="a@localhost", role=OperatorRole.ANALYST)
+    with database.session_factory() as session:
+        items = collect_activity(session, base - timedelta(days=1), 50, principal=principal)
+
+    conjunctions = [item for item in items if item.kind == "conjunction"]
+    assert len(conjunctions) == 50
+    newest = max(item.payload["miss_distance_km"] for item in conjunctions)
+    assert newest == 250.0, "the newest event must be in the feed"
+    assert all(item.detail == "ISS / DEB" for item in conjunctions)
+    assert queries["n"] <= 12, f"{queries['n']} queries for one read"

@@ -4,7 +4,7 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
 import ThemeToggle from "@/components/ThemeToggle";
-import { api } from "@/lib/api";
+import { api, publicApi } from "@/lib/api";
 import { initializeAuth } from "@/lib/auth";
 import { rememberReturnTo } from "@/lib/returnTo";
 import SiteFooter from "@/components/SiteFooter";
@@ -66,10 +66,16 @@ export default function Pricing() {
       .catch(() => null)
       .then(async (state) => {
         if (!active) return;
-        setSignedIn(Boolean(state && (state.development || state.session)));
+        const signedInNow = Boolean(state && (state.development || state.session));
+        setSignedIn(signedInNow);
         setEmail(state?.session?.user?.email ?? "");
         try {
-          const loaded = await api<Plans>("/billing/plans");
+          // Visitors read the edge-cached copy: the pricing page is the one
+          // most likely to be linked from a post, and it should not cost the
+          // API a database read per visitor.
+          const loaded = signedInNow
+            ? await api<Plans>("/billing/plans")
+            : await publicApi<Plans>("/billing/plans");
           if (active) setPlans(loaded);
         } catch {
           if (active) setUnreachable(true);

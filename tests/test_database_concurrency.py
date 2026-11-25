@@ -70,3 +70,31 @@ def test_a_write_succeeds_while_a_reader_session_is_open(tmp_path) -> None:
     assert not failure, failure
     with database.session_factory() as session:
         assert session.scalars(select(CommandExecutionRecord)).all()
+
+
+def test_an_exhausted_connection_pool_is_a_fast_503_not_a_500() -> None:
+    """At 100 users the pool waited 30 s per request and then returned a 500."""
+    from fastapi.testclient import TestClient
+    from sqlalchemy.exc import TimeoutError as PoolTimeoutError
+
+    from sdebris.api.app import create_app
+
+    app = create_app("sqlite:///:memory:")
+
+    @app.get("/__pool_exhausted")
+    def exhausted():
+        raise PoolTimeoutError("QueuePool limit reached")
+
+    with TestClient(app) as client:
+        response = client.get("/__pool_exhausted")
+    assert response.status_code == 503
+    assert response.headers["Retry-After"] == "5"
+
+
+def test_the_postgres_pool_is_sized_and_bounded(monkeypatch) -> None:
+    from sdebris.ontology.database import create_database_engine
+
+    monkeypatch.setenv("SDEBRIS_DB_POOL_SIZE", "7")
+    engine = create_database_engine("postgresql+psycopg://u:p@localhost:1/db")
+    assert engine.pool.size() == 7
+    assert engine.pool._timeout == 5.0

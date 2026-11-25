@@ -43,7 +43,10 @@ export const ROUTES: PublicRoute[] = [
   { pattern: /^trajectories$/, revalidate: 300 },
   { pattern: /^events$/, revalidate: 300 },
   { pattern: /^events\/assessed$/, revalidate: 300 },
-  { pattern: /^events\/[\w-]{1,64}\/explanation$/, revalidate: 900 }
+  { pattern: /^events\/[\w-]{1,64}\/explanation$/, revalidate: 900 },
+  // The anonymous view of the plans. A signed-in buyer's view excludes their
+  // own reserved seat, so it goes direct with their token instead.
+  { pattern: /^billing\/plans$/, revalidate: 300 }
 ];
 
 /**

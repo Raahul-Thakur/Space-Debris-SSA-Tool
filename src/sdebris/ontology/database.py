@@ -45,7 +45,23 @@ def create_database_engine(url: str | None = None) -> Engine:
         connect_args = {"prepare_threshold": None}
     else:
         connect_args = {}
-    engine = create_engine(database_url, connect_args=connect_args, pool_pre_ping=True)
+    pool: dict[str, object] = {}
+    if not database_url.startswith("sqlite"):
+        # Sized for the thread pool FastAPI runs synchronous endpoints on, and
+        # bounded in wait. The defaults (5 + 10 connections, 30 s timeout)
+        # failed under load in the worst way: at 100 concurrent users every
+        # request queued for a connection, waited thirty seconds and then
+        # returned a 500. A short timeout turns that into a fast 503 the
+        # client can retry (see the handler in sdebris.api.app). Supabase's
+        # transaction pooler accepts far more clients than this per process.
+        pool = {
+            "pool_size": int(os.getenv("SDEBRIS_DB_POOL_SIZE", "10")),
+            "max_overflow": int(os.getenv("SDEBRIS_DB_MAX_OVERFLOW", "10")),
+            "pool_timeout": float(os.getenv("SDEBRIS_DB_POOL_TIMEOUT", "5")),
+        }
+    engine = create_engine(
+        database_url, connect_args=connect_args, pool_pre_ping=True, **pool
+    )
     if database_url.startswith("sqlite"):
         on_disk = ":memory:" not in database_url
 

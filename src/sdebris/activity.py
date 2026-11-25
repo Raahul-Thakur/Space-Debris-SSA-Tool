@@ -89,36 +89,48 @@ def _aware(value: datetime) -> datetime:
     return value if value.tzinfo else value.replace(tzinfo=timezone.utc)
 
 
-def _label(session: Session, object_id: str | None) -> tuple[str, str | None]:
-    if object_id is None:
-        return "Unknown", None
-    record = session.get(SpaceObjectRecord, object_id)
-    if record is None:
-        return "Unknown", None
-    return record.name, record.norad_id
-
-
 def _conjunction_items(
-    session: Session, since: datetime, principal: Principal | None
+    session: Session, since: datetime, principal: Principal | None, limit: int
 ) -> list[ActivityItem]:
     # Derived facts, not work products: the same for everyone (see tenancy).
     rows = session.scalars(
         select(ConjunctionEventRecord)
         .where(ConjunctionEventRecord.created_at > since)
-        .order_by(ConjunctionEventRecord.created_at)
-        .limit(MAX_FEED_ITEMS)
+        .order_by(ConjunctionEventRecord.created_at.desc())
+        .limit(limit)
     )
-    items: list[ActivityItem] = []
-    for event in rows:
-        assessment = session.scalar(
+    events = list(rows)
+    # Two batched lookups instead of three queries per event. One read of a
+    # day's feed was 480 queries, and every signed-in console repeats that
+    # read every two seconds over its live stream.
+    latest: dict[str, RiskAssessmentRecord] = {}
+    if events:
+        for assessment in session.scalars(
             select(RiskAssessmentRecord)
-            .where(RiskAssessmentRecord.event_id == event.id)
-            .order_by(RiskAssessmentRecord.created_at.desc())
-            .limit(1)
+            .where(RiskAssessmentRecord.event_id.in_([event.id for event in events]))
+            .order_by(RiskAssessmentRecord.created_at)
+        ):
+            latest[assessment.event_id] = assessment  # ascending, so the newest wins
+    object_ids = {
+        object_id
+        for event in events
+        for object_id in (event.primary_object_id, event.secondary_object_id)
+        if object_id
+    }
+    labels = {
+        record.id: (record.name, record.norad_id)
+        for record in (
+            session.scalars(select(SpaceObjectRecord).where(SpaceObjectRecord.id.in_(object_ids)))
+            if object_ids
+            else []
         )
+    }
+    items: list[ActivityItem] = []
+    for event in events:
+        assessment = latest.get(event.id)
         tier = assessment.tier if assessment else "unassessed"
-        primary_name, primary_norad = _label(session, event.primary_object_id)
-        secondary_name, _ = _label(session, event.secondary_object_id)
+        primary_name, primary_norad = labels.get(event.primary_object_id, ("Unknown", None))
+        secondary_name, _ = labels.get(event.secondary_object_id, ("Unknown", None))
         items.append(
             ActivityItem(
                 id=f"event:{event.id}",
@@ -145,13 +157,13 @@ def _conjunction_items(
 
 
 def _alert_items(
-    session: Session, since: datetime, principal: Principal | None
+    session: Session, since: datetime, principal: Principal | None, limit: int
 ) -> list[ActivityItem]:
     rows = session.scalars(
         scope(select(AlertRecord), AlertRecord.actor, principal)
         .where(AlertRecord.created_at > since)
-        .order_by(AlertRecord.created_at)
-        .limit(MAX_FEED_ITEMS)
+        .order_by(AlertRecord.created_at.desc())
+        .limit(limit)
     )
     return [
         ActivityItem(
@@ -174,7 +186,7 @@ def _alert_items(
 
 
 def _job_items(
-    session: Session, since: datetime, principal: Principal | None
+    session: Session, since: datetime, principal: Principal | None, limit: int
 ) -> list[ActivityItem]:
     # A job emits one progress record per transition, so the event table is the
     # feed source: the job row itself only ever holds the latest state.
@@ -188,8 +200,8 @@ def _job_items(
             principal,
         )
         .where(ScreeningJobEventRecord.created_at > since)
-        .order_by(ScreeningJobEventRecord.created_at)
-        .limit(MAX_FEED_ITEMS)
+        .order_by(ScreeningJobEventRecord.created_at.desc())
+        .limit(limit)
     ).all()
     return [
         ActivityItem(
@@ -214,13 +226,13 @@ def _job_items(
 
 
 def _command_items(
-    session: Session, since: datetime, principal: Principal | None
+    session: Session, since: datetime, principal: Principal | None, limit: int
 ) -> list[ActivityItem]:
     rows = session.scalars(
         scope(select(CommandExecutionRecord), CommandExecutionRecord.actor, principal)
         .where(CommandExecutionRecord.created_at > since)
-        .order_by(CommandExecutionRecord.created_at)
-        .limit(MAX_FEED_ITEMS)
+        .order_by(CommandExecutionRecord.created_at.desc())
+        .limit(limit)
     )
     return [
         ActivityItem(
@@ -239,7 +251,7 @@ def _command_items(
 
 
 def _monitoring_items(
-    session: Session, since: datetime, principal: Principal | None
+    session: Session, since: datetime, principal: Principal | None, limit: int
 ) -> list[ActivityItem]:
     rows = session.execute(
         scope(
@@ -248,8 +260,8 @@ def _monitoring_items(
             principal,
         )
         .where(MonitoredObjectRecord.updated_at > since)
-        .order_by(MonitoredObjectRecord.updated_at)
-        .limit(MAX_FEED_ITEMS)
+        .order_by(MonitoredObjectRecord.updated_at.desc())
+        .limit(limit)
     ).all()
     return [
         ActivityItem(
@@ -269,13 +281,13 @@ def _monitoring_items(
 
 
 def _audit_items(
-    session: Session, since: datetime, principal: Principal | None
+    session: Session, since: datetime, principal: Principal | None, limit: int
 ) -> list[ActivityItem]:
     rows = session.scalars(
         scope(select(AuditActionRecord), AuditActionRecord.actor, principal)
         .where(AuditActionRecord.occurred_at > since)
-        .order_by(AuditActionRecord.occurred_at)
-        .limit(MAX_FEED_ITEMS)
+        .order_by(AuditActionRecord.occurred_at.desc())
+        .limit(limit)
     )
     return [
         ActivityItem(
@@ -323,13 +335,16 @@ def collect_activity(
     can forget it and fall back to an unscoped feed.
     """
     cutoff = _aware(since)
+    wanted = max(1, min(limit, MAX_FEED_ITEMS))
     items: list[ActivityItem] = []
+    # Each collector returns its own newest ``wanted`` items, so the newest
+    # ``wanted`` of their union is exact. Collectors used to take the oldest
+    # 200 after the cursor, which silently dropped the newest items once a
+    # client had fallen more than 200 behind on any one kind.
     for collector in _COLLECTORS:
-        items.extend(collector(session, cutoff, principal))
+        items.extend(collector(session, cutoff, principal, wanted))
     items.sort(key=lambda item: (item.occurred_at, item.id))
-    # The newest items matter most when a client has fallen far behind, so the
-    # tail is kept and then re-presented in chronological order.
-    return items[-min(limit, MAX_FEED_ITEMS) :]
+    return items[-wanted:]
 
 
 def feed_cursor(items: list[ActivityItem], fallback: datetime) -> str:
